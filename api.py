@@ -4,6 +4,7 @@ Web API 接口 - FastAPI + SSE 实时流式输出
 import json
 import logging
 import asyncio
+import threading
 from typing import Optional, Dict, Any
 
 from fastapi import FastAPI, HTTPException, Query
@@ -52,6 +53,9 @@ app.add_middleware(
 import os
 if os.path.exists("static"):
     app.mount("/static", StaticFiles(directory="static"), name="static")
+
+# 全局：管理运行中任务的停止信号  { task_id: threading.Event }
+_stop_events: Dict[str, threading.Event] = {}
 
 
 # ─── 请求/响应模型 ────────────────────────────────────────────────────────────
@@ -194,22 +198,33 @@ async def stream_task(
     if os_type not in ("linux", "windows"):
         os_type = "linux"
 
+    import uuid
+    task_id = str(uuid.uuid4())[:8]
+
+    # 创建该任务的停止信号
+    stop_event = threading.Event()
+    _stop_events[task_id] = stop_event
+
     async def event_generator():
         loop = asyncio.get_event_loop()
         queue: asyncio.Queue = asyncio.Queue()
 
         def run_agent():
-            for event in agent.stream_run(task, os_type=os_type):
+            for event in agent.stream_run(task, task_id=task_id, os_type=os_type, stop_event=stop_event):
                 loop.call_soon_threadsafe(queue.put_nowait, event)
             loop.call_soon_threadsafe(queue.put_nowait, None)  # 结束信号
 
         loop.run_in_executor(None, run_agent)
 
-        while True:
-            event = await queue.get()
-            if event is None:
-                break
-            yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
+        try:
+            while True:
+                event = await queue.get()
+                if event is None:
+                    break
+                yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
+        finally:
+            # 任务结束后清理 stop_event
+            _stop_events.pop(task_id, None)
 
     return StreamingResponse(
         event_generator(),
@@ -219,6 +234,25 @@ async def stream_task(
             "X-Accel-Buffering": "no",
         },
     )
+
+
+@app.post("/task/stop/{task_id}")
+async def stop_task(task_id: str):
+    """
+    停止正在执行的任务。
+    向目标任务发送停止信号，任务将在当前步骤完成后终止。
+    """
+    if task_id not in _stop_events:
+        raise HTTPException(status_code=404, detail=f"任务 {task_id} 不在运行中或已结束")
+    _stop_events[task_id].set()
+    logger.info(f"[API] 已发送停止信号 → 任务 [{task_id}]")
+    return {"ok": True, "task_id": task_id, "message": "停止信号已发送，任务将在当前步骤完成后终止"}
+
+
+@app.get("/task/running")
+async def list_running_tasks():
+    """获取当前正在运行的任务列表"""
+    return {"ok": True, "running": list(_stop_events.keys()), "count": len(_stop_events)}
 
 
 @app.get("/history")

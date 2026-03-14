@@ -362,6 +362,7 @@ tr:hover td{background:rgba(255,255,255,.02)}
       <input type="text" id="taskInput" placeholder="例如：用 /root/check 目录的工具检查主机是否被入侵..."
              onkeydown="if(event.key==='Enter')runTask()"/>
       <button class="btn" id="runBtn" onclick="runTask()">▶ 执行</button>
+      <button class="btn btn-red" id="stopBtn" onclick="stopTask()" style="display:none" title="停止当前任务">⏹ 停止</button>
       <button class="btn btn-outline btn-sm" onclick="openChatAssist()" title="用 AI 帮你完善任务描述">💬 AI辅助</button>
     </div>
 
@@ -854,6 +855,10 @@ function runTask(){
   document.getElementById('finalCard').classList.remove('show');
   document.getElementById('stepCounter').textContent='';
   document.getElementById('runBtn').disabled=true;
+  document.getElementById('runBtn').style.display='none';
+  document.getElementById('stopBtn').style.display='inline-flex';
+  document.getElementById('stopBtn').disabled=false;
+  document.getElementById('stopBtn').textContent='⏹ 停止';
   setStatus('running',`[${osLabel}] 正在执行：${task.substring(0,40)}${task.length>40?'...':''}`);
 
   if(currentEventSource) currentEventSource.close();
@@ -865,8 +870,44 @@ function runTask(){
   es.onerror = ()=>{
     es.close();
     setStatus('error','连接断开，请检查服务是否正在运行');
-    document.getElementById('runBtn').disabled=false;
+    resetTaskBtns();
   };
+}
+
+async function stopTask(){
+  if(!currentTaskId){
+    // task_id 还未回来，先关 SSE，等 start 事件后再停
+    if(currentEventSource) currentEventSource.close();
+    resetTaskBtns();
+    setStatus('error','任务已取消');
+    return;
+  }
+  const btn = document.getElementById('stopBtn');
+  btn.disabled = true;
+  btn.textContent = '正在停止...';
+  try{
+    const r = await fetch(`/task/stop/${currentTaskId}`, {method:'POST'});
+    if(!r.ok){
+      const d = await r.json().catch(()=>({}));
+      toast(d.detail || '停止失败','fail');
+      btn.disabled = false;
+      btn.textContent = '⏹ 停止';
+    } else {
+      toast('已发送停止信号，等待任务响应...');
+    }
+  }catch(e){
+    toast('停止请求失败：'+e.message,'fail');
+    btn.disabled = false;
+    btn.textContent = '⏹ 停止';
+  }
+}
+
+function resetTaskBtns(){
+  document.getElementById('runBtn').disabled=false;
+  document.getElementById('runBtn').style.display='inline-flex';
+  document.getElementById('stopBtn').style.display='none';
+  document.getElementById('stopBtn').disabled=false;
+  document.getElementById('stopBtn').textContent='⏹ 停止';
 }
 
 function handleEvent(data){
@@ -881,16 +922,29 @@ function handleEvent(data){
     addStep(data,'running');
   }
   if(event==='step_result') updateStep(data);
+  if(event==='stopped'){
+    document.getElementById('finalCard').classList.add('show');
+    document.getElementById('finalCard').querySelector('h3').innerHTML =
+      '⏹ 任务已停止 <button class="copy-btn" onclick="copyFinal()">复制结果</button>';
+    document.getElementById('finalCard').style.borderColor='var(--yellow)';
+    document.getElementById('finalAnswer').textContent = `任务已被手动停止（共完成 ${stepCount} 步）`;
+    setStatus('error',`⏹ 已停止，共 ${stepCount} 步`);
+    resetTaskBtns();
+    currentEventSource && currentEventSource.close();
+  }
   if(event==='done'){
     document.getElementById('finalCard').classList.add('show');
+    document.getElementById('finalCard').querySelector('h3').innerHTML =
+      '✅ 任务完成 <button class="copy-btn" onclick="copyFinal()">复制结果</button>';
+    document.getElementById('finalCard').style.borderColor='';
     document.getElementById('finalAnswer').textContent = data.final_answer||'任务已完成';
     setStatus('done',`✅ 完成，共 ${stepCount} 步`);
-    document.getElementById('runBtn').disabled=false;
+    resetTaskBtns();
     currentEventSource.close();
   }
   if(event==='error'){
     setStatus('error',`错误：${data.message}`);
-    document.getElementById('runBtn').disabled=false;
+    resetTaskBtns();
     currentEventSource.close();
   }
 }

@@ -396,14 +396,15 @@ class LinuxAgent:
         memory.finish_session(task_id, "aborted", f"超出最大步骤限制 ({MAX_ITERATIONS} 步)")
         return self._build_report(task_id, steps_summary, "任务超出最大步骤限制，已终止")
 
-    def stream_run(self, task: str, task_id: str = None, os_type: str = "linux") -> Generator[Dict, None, None]:
+    def stream_run(self, task: str, task_id: str = None, os_type: str = "linux", stop_event=None) -> Generator[Dict, None, None]:
         """
         流式执行任务，每步执行后 yield 一个事件。
 
         Args:
-            task:     任务描述
-            task_id:  可选，任务ID
-            os_type:  目标系统类型 "linux" | "windows"
+            task:        任务描述
+            task_id:     可选，任务ID
+            os_type:     目标系统类型 "linux" | "windows"
+            stop_event:  可选，threading.Event，外部设置后任务将在下一轮循环前终止
         """
         os_type = (os_type or "linux").lower()
         task_id = task_id or str(uuid.uuid4())[:8]
@@ -415,6 +416,20 @@ class LinuxAgent:
         yield {"event": "start", "task_id": task_id, "task": task, "os_type": os_type}
 
         for iteration in range(1, MAX_ITERATIONS + 1):
+
+            # ── 停止检查 ──────────────────────────────────────────
+            if stop_event is not None and stop_event.is_set():
+                logger.info(f"[Agent] 任务 [{task_id}] 收到停止信号，提前终止")
+                memory.finish_session(task_id, "stopped", "用户手动停止任务")
+                yield {
+                    "event": "stopped",
+                    "task_id": task_id,
+                    "message": "任务已被用户停止",
+                    "steps": steps_summary,
+                }
+                return
+            # ─────────────────────────────────────────────────────
+
             messages = memory.build_messages(task_id, dynamic_system_prompt)
 
             try:
