@@ -108,7 +108,7 @@ ai-check/
 ├── tool_knowledge.py   # 工具知识库（错误记录、用法总结、AI自学）
 ├── memory.py           # 任务记忆与历史持久化
 ├── security.py         # 安全校验（黑名单命令拦截）
-├── config.py           # 配置文件（模型预设、超时、黑名单等）
+├── config.py           # 配置文件（模型预设、超时、黑名单,默认端口等）
 ├── model_config.json   # 运行时模型配置（自动生成）
 ├── task_history.json   # 历史任务持久化（自动生成）
 ├── requirements.txt    # 依赖列表
