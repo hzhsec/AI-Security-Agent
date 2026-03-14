@@ -228,8 +228,8 @@ GET /task/stream?task=检查系统是否被入侵&os_type=linux
 | **智谱 GLM** | `glm-4-flash` | [open.bigmodel.cn](https://open.bigmodel.cn) |
 | **OpenAI** | `gpt-4o-mini` | [platform.openai.com](https://platform.openai.com) |
 | **自定义** | 任意兼容 OpenAI API 的服务 | — |
-
-> 推荐使用 **DeepSeek** —— 推理能力强、价格低、对中文运维场景友好。
+>白嫖推荐使用**千问**
+> 综合推荐使用 **DeepSeek** —— 推理能力强、价格低、对中文运维场景友好。
 
 ---
 
