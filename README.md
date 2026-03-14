@@ -31,8 +31,7 @@
 ## 界面预览
 
 | 任务执行 | 工具知识库 |
-|:---:|:---:|
-| ![任务执行](https://via.placeholder.com/480x280/161b22/58a6ff?text=Task+Execution) | ![知识库](https://via.placeholder.com/480x280/161b22/3fb950?text=Tool+Knowledge) |
+
 
 ---
 
