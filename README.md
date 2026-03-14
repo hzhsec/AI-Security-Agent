@@ -30,7 +30,15 @@
 
 ## 界面预览
 
-| 任务执行 | 工具知识库 |
+
+
+**任务执行界面**
+
+![image.png](https://cdn.jsdmirror.com/gh/hzhsec/upload@main/20260314172605421.png)
+
+**工具知识库学习**
+
+![image.png](https://cdn.jsdmirror.com/gh/hzhsec/upload@main/20260314172634588.png)
 
 
 ---
