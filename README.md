@@ -45,8 +45,8 @@
 ### 1. 克隆仓库
 
 ```bash
-git clone https://github.com/yourname/ai-check.git
-cd ai-check
+git clone https://github.com/hzhsec/AI-Security-Agent.git
+cd AI-Security-Agent
 ```
 
 ### 2. 安装依赖
