@@ -1,0 +1,7 @@
+{
+  "provider": "cerebras",
+  "api_key": "",
+  "base_url": "https://api.cerebras.ai/v1",
+  "model": "llama3.1-8b",
+  "proxy": "http://127.0.0.1:7897"
+}

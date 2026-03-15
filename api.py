@@ -18,7 +18,7 @@ from agent import agent
 from memory import memory
 from config import (
     API_HOST, API_PORT, LOG_FILE, LOG_LEVEL,
-    MODEL_PRESETS, load_model_config, save_model_config,
+    MODEL_PRESETS, load_model_config, save_model_config, make_openai_client,
 )
 from tool_knowledge import tool_knowledge
 
@@ -81,6 +81,7 @@ class ModelConfigRequest(BaseModel):
     api_key: str
     base_url: str
     model: str
+    proxy: Optional[str] = ""   # HTTP代理，如 http://127.0.0.1:7890，留空不使用
 
 
 class PromptGenRequest(BaseModel):
@@ -324,6 +325,8 @@ async def get_model_config():
     key = safe_cfg.get("api_key", "")
     safe_cfg["api_key_masked"] = key[:8] + "..." + key[-4:] if len(key) > 12 else "***"
     safe_cfg["api_key"] = safe_cfg["api_key_masked"]
+    # proxy 字段直接透传（不含敏感信息）
+    safe_cfg.setdefault("proxy", "")
     return JSONResponse(content=safe_cfg)
 
 
@@ -331,37 +334,62 @@ async def get_model_config():
 async def set_model_config(request: ModelConfigRequest):
     """
     保存模型配置（切换 API 提供商）。
+    api_key 为空时自动复用已保存的 key，无需重新填写。
     之后所有任务都使用新配置，无需重启服务。
     """
-    if not request.api_key.strip():
-        raise HTTPException(status_code=400, detail="api_key 不能为空")
     if not request.base_url.strip():
         raise HTTPException(status_code=400, detail="base_url 不能为空")
     if not request.model.strip():
         raise HTTPException(status_code=400, detail="model 不能为空")
 
+    # api_key 为空 → 复用已保存的 key
+    api_key = request.api_key.strip()
+    if not api_key:
+        existing = load_model_config()
+        api_key = existing.get("api_key", "")
+        if not api_key:
+            raise HTTPException(status_code=400, detail="api_key 不能为空，且当前无已保存的 key")
+
     cfg = {
         "provider": request.provider,
-        "api_key": request.api_key,
+        "api_key": api_key,
         "base_url": request.base_url,
         "model": request.model,
+        "proxy": (request.proxy or "").strip(),
     }
     save_model_config(cfg)
-    logger.info(f"[API] 模型配置已更新: {request.provider} / {request.model}")
+    logger.info(f"[API] 模型配置已更新: {request.provider} / {request.model} proxy={cfg['proxy'] or '无'}")
     return {
         "ok": True,
         "message": f"模型已切换到 {request.provider} / {request.model}",
         "provider": request.provider,
         "model": request.model,
+        "proxy": cfg["proxy"],
     }
+
+
+@app.delete("/model/config/key")
+async def clear_model_api_key():
+    """
+    清除服务端保存的 API Key（将 api_key 置为空字符串）。
+    其余配置（provider / base_url / model / proxy）保持不变。
+    """
+    cfg = load_model_config()
+    cfg["api_key"] = ""
+    save_model_config(cfg)
+    logger.info("[API] API Key 已清除")
+    return {"ok": True, "message": "服务端 API Key 已清除"}
 
 
 @app.post("/model/test")
 async def test_model_connection(request: ModelConfigRequest):
-    """测试模型配置是否可用（发送一条简单消息验证连通性）"""
-    from openai import OpenAI
+    """测试模型配置是否可用（发送一条简单消息验证连通性），支持代理"""
     try:
-        client = OpenAI(api_key=request.api_key, base_url=request.base_url)
+        client = make_openai_client({
+            "api_key": request.api_key,
+            "base_url": request.base_url,
+            "proxy": (request.proxy or "").strip(),
+        })
         resp = client.chat.completions.create(
             model=request.model,
             messages=[{"role": "user", "content": "回复数字1，不要其他内容"}],
@@ -504,8 +532,6 @@ async def chat_with_ai(request: ChatRequest):
     mode=refine: 任务完善模式，帮用户把模糊想法变成精确任务指令
     mode=free:   自由问答模式
     """
-    from openai import OpenAI
-
     system_prompt = _CHAT_REFINE_SYSTEM if request.mode == "refine" else _CHAT_FREE_SYSTEM
 
     messages = [{"role": "system", "content": system_prompt}]
@@ -520,7 +546,7 @@ async def chat_with_ai(request: ChatRequest):
 
     try:
         cfg = load_model_config()
-        client = OpenAI(api_key=cfg["api_key"], base_url=cfg["base_url"])
+        client = make_openai_client(cfg)
         resp = client.chat.completions.create(
             model=cfg["model"],
             messages=messages,
@@ -536,8 +562,6 @@ async def chat_with_ai(request: ChatRequest):
 @app.post("/chat/stream")
 async def chat_stream(request: ChatRequest):
     """流式 AI 对话接口（SSE）"""
-    from openai import OpenAI
-
     system_prompt = _CHAT_REFINE_SYSTEM if request.mode == "refine" else _CHAT_FREE_SYSTEM
 
     messages = [{"role": "system", "content": system_prompt}]
@@ -551,7 +575,7 @@ async def chat_stream(request: ChatRequest):
     async def event_gen():
         try:
             cfg = load_model_config()
-            client = OpenAI(api_key=cfg["api_key"], base_url=cfg["base_url"])
+            client = make_openai_client(cfg)
             stream = client.chat.completions.create(
                 model=cfg["model"],
                 messages=messages,

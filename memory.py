@@ -167,7 +167,13 @@ class Memory:
     def _load_history(self):
         try:
             with open(self.persist_file, "r", encoding="utf-8") as f:
-                data = json.load(f)
+                content = f.read().strip()
+            if not content:
+                # 空文件，正常跳过，顺便修复成合法 JSON
+                with open(self.persist_file, "w", encoding="utf-8") as f:
+                    f.write("{}")
+                return
+            data = json.loads(content)
             for tid, d in data.items():
                 steps = [StepRecord(**s) for s in d.pop("steps", [])]
                 session = TaskSession(**d)

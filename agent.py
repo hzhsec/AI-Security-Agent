@@ -11,7 +11,7 @@ from openai import OpenAI
 
 from config import (
     DEEPSEEK_API_KEY, DEEPSEEK_BASE_URL, DEEPSEEK_MODEL,
-    MAX_ITERATIONS, load_model_config,
+    MAX_ITERATIONS, load_model_config, make_openai_client,
 )
 from memory import memory
 from tools import dispatcher, TOOL_DESCRIPTIONS
@@ -220,12 +220,9 @@ class LinuxAgent:
     """
 
     def _get_client_and_model(self):
-        """每次调用都重新读取配置，实现模型热切换"""
+        """每次调用都重新读取配置，实现模型热切换（含代理支持）"""
         cfg = load_model_config()
-        client = OpenAI(
-            api_key=cfg["api_key"],
-            base_url=cfg["base_url"],
-        )
+        client = make_openai_client(cfg)
         return client, cfg["model"], cfg.get("provider", "unknown")
 
     def _call_ai(self, messages: List[Dict]) -> str:

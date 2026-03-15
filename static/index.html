@@ -108,6 +108,16 @@ label.field-label{display:block;font-size:12px;color:var(--muted);margin-bottom:
 }
 .tag:hover .tag-del{display:inline}
 
+/* ═══ 模型选项标签 ═══ */
+.model-list{display:flex;flex-wrap:wrap;gap:5px;margin:6px 0 4px}
+.model-tag{
+  background:var(--bg);border:1px solid var(--border);border-radius:4px;
+  padding:3px 9px;font-size:11px;color:var(--muted);cursor:pointer;
+  transition:all .12s;font-family:monospace;
+}
+.model-tag:hover{border-color:var(--accent);color:var(--accent)}
+.model-tag.active{border-color:var(--accent);color:var(--accent);background:rgba(88,166,255,.1);font-weight:600}
+
 /* ═══ 自定义快捷指令区域 ═══ */
 .custom-tags-area{margin-top:10px;padding:10px 12px;border:1px dashed var(--border);border-radius:8px;background:rgba(255,255,255,.015)}
 .custom-tags-title{font-size:11px;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px;display:flex;align-items:center;gap:6px}
@@ -166,12 +176,13 @@ label.field-label{display:block;font-size:12px;color:var(--muted);margin-bottom:
 .copy-btn:hover{background:rgba(63,185,80,.25)}
 
 /* ═══ 历史记录 ═══ */
-.history-toolbar{display:flex;align-items:center;gap:10px;margin-bottom:14px}
+.history-toolbar{display:flex;align-items:center;gap:10px;margin-bottom:14px;flex-wrap:wrap}
 .history-toolbar .section-title{font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.8px;font-weight:600;flex:1}
 table{width:100%;border-collapse:collapse;font-size:13px}
 th{text-align:left;padding:8px 12px;border-bottom:1px solid var(--border);color:var(--muted);font-weight:500;font-size:12px}
 td{padding:10px 12px;border-bottom:1px solid rgba(48,54,61,.5);vertical-align:middle}
 tr:hover td{background:rgba(255,255,255,.02)}
+tr.selected-row td{background:rgba(248,81,73,.06)}
 .pill{display:inline-block;padding:2px 9px;border-radius:20px;font-size:11px;font-weight:600}
 .pill.completed{background:rgba(63,185,80,.2);color:var(--green)}
 .pill.running{background:rgba(88,166,255,.2);color:var(--accent)}
@@ -181,6 +192,12 @@ tr:hover td{background:rgba(255,255,255,.02)}
 .action-link{color:var(--accent);font-size:12px;cursor:pointer;background:none;border:none;text-decoration:underline}
 .action-link:hover{opacity:.7}
 .action-del{color:var(--red);font-size:12px;cursor:pointer;background:none;border:none;text-decoration:underline}
+/* checkbox */
+input[type=checkbox]{width:14px;height:14px;accent-color:var(--accent);cursor:pointer}
+.batch-bar{display:none;align-items:center;gap:10px;padding:8px 14px;background:rgba(248,81,73,.08);border:1px solid rgba(248,81,73,.25);border-radius:7px;margin-bottom:10px;font-size:13px}
+.batch-bar.show{display:flex}
+.batch-count{color:var(--red);font-weight:700}
+#selectAllCb{width:14px;height:14px;accent-color:var(--accent);cursor:pointer}
 
 /* ═══ AI 对话区 ═══ */
 .chat-layout{display:grid;grid-template-columns:1fr 380px;gap:18px;height:calc(100vh - 160px);min-height:500px}
@@ -286,10 +303,35 @@ tr:hover td{background:rgba(255,255,255,.02)}
 .provider-btn{
   border:1px solid var(--border);border-radius:7px;padding:10px 12px;
   cursor:pointer;transition:all .15s;text-align:center;background:var(--bg);
+  position:relative;
 }
 .provider-btn:hover,.provider-btn.selected{border-color:var(--accent);background:rgba(88,166,255,.08)}
 .provider-btn .pname{font-size:12px;font-weight:600;color:var(--text)}
 .provider-btn .pdesc{font-size:10px;color:var(--muted);margin-top:2px}
+.provider-btn .pdel{
+  display:none;position:absolute;top:4px;right:6px;
+  font-size:11px;color:var(--red);background:none;border:none;cursor:pointer;
+  line-height:1;padding:1px 3px;
+}
+.provider-btn:hover .pdel{display:block}
+/* 添加提供商按钮 */
+.add-provider-btn{
+  border:1px dashed var(--border);border-radius:7px;padding:10px 12px;
+  cursor:pointer;transition:all .15s;text-align:center;background:transparent;
+  color:var(--muted);font-size:12px;display:flex;align-items:center;justify-content:center;gap:5px;
+}
+.add-provider-btn:hover{border-color:var(--accent);color:var(--accent);background:rgba(88,166,255,.05)}
+/* 添加提供商内嵌表单 */
+.add-provider-form{
+  display:none;margin-top:10px;padding:14px;
+  background:var(--bg);border:1px solid var(--border);border-radius:8px;
+}
+.add-provider-form.show{display:block}
+.add-provider-form .apf-row{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px}
+.add-provider-form .apf-row.full{grid-template-columns:1fr}
+.add-provider-form label{font-size:11px;color:var(--muted);display:block;margin-bottom:3px}
+.add-provider-form input{padding:7px 10px;font-size:12px}
+.add-provider-form .apf-actions{display:flex;gap:8px;margin-top:10px;justify-content:flex-end}
 
 .form-row{margin-bottom:14px}
 .hint{font-size:11px;color:var(--muted);margin-top:5px}
@@ -620,7 +662,14 @@ tr:hover td{background:rgba(255,255,255,.02)}
     <span class="section-title">📋 任务历史</span>
     <span id="historyCount" style="font-size:12px;color:var(--muted)"></span>
     <button class="btn-outline btn-sm btn" onclick="loadHistory()">刷新</button>
-    <button class="btn btn-red btn-sm" onclick="confirmClearAll()">🗑 清除全部记忆</button>
+    <button class="btn btn-red btn-sm" onclick="confirmClearAll()">🗑 清除全部</button>
+  </div>
+
+  <!-- 批量操作栏 -->
+  <div class="batch-bar" id="batchBar">
+    <span>已选中 <span class="batch-count" id="batchCount">0</span> 条</span>
+    <button class="btn btn-red btn-xs" onclick="confirmDeleteSelected()">🗑 删除选中</button>
+    <button class="btn-outline btn-xs btn" onclick="clearSelection()">取消选择</button>
   </div>
 
   <!-- 记忆统计 -->
@@ -645,9 +694,43 @@ tr:hover td{background:rgba(255,255,255,.02)}
       <div class="card-title" style="margin-bottom:12px">选择 API 提供商</div>
       <div class="provider-grid" id="providerGrid"></div>
 
+      <!-- 内嵌添加提供商表单 -->
+      <div class="add-provider-form" id="addProviderForm">
+        <div style="font-size:12px;font-weight:600;color:var(--text);margin-bottom:10px">➕ 添加自定义提供商</div>
+        <div class="apf-row">
+          <div>
+            <label>提供商名称 *</label>
+            <input type="text" id="apfName" placeholder="如：Ollama 本地" maxlength="20"/>
+          </div>
+          <div>
+            <label>默认模型 *</label>
+            <input type="text" id="apfModel" placeholder="如：llama3" maxlength="60"/>
+          </div>
+        </div>
+        <div class="apf-row full">
+          <div>
+            <label>Base URL *</label>
+            <input type="text" id="apfBaseUrl" placeholder="如：http://localhost:11434/v1"/>
+          </div>
+        </div>
+        <div class="apf-row full">
+          <div>
+            <label>文档链接（可选）</label>
+            <input type="text" id="apfDocs" placeholder="https://..."/>
+          </div>
+        </div>
+        <div class="apf-actions">
+          <button class="btn-outline btn-xs btn" onclick="hideAddProviderForm()">取消</button>
+          <button class="btn btn-xs btn-green" onclick="saveCustomProvider()">✓ 保存</button>
+        </div>
+      </div>
+
       <div class="form-row">
         <label class="field-label">API Key</label>
-        <input type="password" id="cfgApiKey" placeholder="sk-..." autocomplete="off"/>
+        <div style="position:relative">
+          <input type="password" id="cfgApiKey" placeholder="留空则保留当前已配置的 Key" autocomplete="off"/>
+          <span id="cfgKeyStatus" style="position:absolute;right:10px;top:50%;transform:translateY(-50%);font-size:11px;color:var(--green);pointer-events:none"></span>
+        </div>
         <div class="hint" id="cfgDocsHint"></div>
       </div>
       <div class="form-row">
@@ -656,12 +739,20 @@ tr:hover td{background:rgba(255,255,255,.02)}
       </div>
       <div class="form-row">
         <label class="field-label">Model Name</label>
-        <input type="text" id="cfgModel" placeholder="deepseek-chat"/>
+        <div class="model-list" id="modelTagList"></div>
+        <input type="text" id="cfgModel" placeholder="点击上方快速选择，或手动输入模型名"
+               oninput="syncModelTagHighlight(this.value)"/>
+      </div>
+      <div class="form-row">
+        <label class="field-label">HTTP 代理 <span style="font-weight:400;color:var(--muted)">（可选，访问外网模型时使用）</span></label>
+        <input type="text" id="cfgProxy" placeholder="http://127.0.0.1:7890  留空不使用"/>
+        <div class="hint">支持 http:// 和 socks5:// 格式，如 <code style="color:var(--accent)">http://127.0.0.1:7890</code></div>
       </div>
       <div id="testResult" class="test-result"></div>
     </div>
     <div class="modal-footer">
-      <button class="btn-outline btn-sm btn" onclick="testConnection()">🔌 测试连接</button>
+      <button class="btn btn-red btn-sm" onclick="confirmClearAllKeys()" title="清除本地缓存的所有提供商 API Key">🗑 清除全部 Key</button>
+      <button class="btn-outline btn-sm btn" style="margin-left:auto" onclick="testConnection()">🔌 测试连接</button>
       <button class="btn btn-sm" onclick="saveModelConfig()">保存配置</button>
     </div>
   </div>
@@ -1472,7 +1563,8 @@ function renderHistory(sessions){
   const c=document.getElementById('historyContainer');
   if(!sessions.length){c.innerHTML='<div class="empty">暂无执行历史</div>';return;}
   const rows=sessions.map(s=>`
-    <tr>
+    <tr id="row-${s.task_id}">
+      <td style="width:32px"><input type="checkbox" class="history-cb" value="${s.task_id}" onchange="onHistoryCbChange()"/></td>
       <td style="font-family:monospace;font-size:11px;color:var(--muted)">${s.task_id}</td>
       <td><div class="task-txt" title="${esc(s.task)}">${esc(s.task)}</div></td>
       <td><span class="pill ${s.status}">${s.status}</span></td>
@@ -1484,8 +1576,65 @@ function renderHistory(sessions){
       </td>
     </tr>`).join('');
   c.innerHTML=`<table><thead><tr>
+    <th><input type="checkbox" id="selectAllCb" onchange="toggleSelectAll(this)"/></th>
     <th>ID</th><th>任务</th><th>状态</th><th>步骤</th><th>耗时</th><th>时间</th><th>操作</th>
   </tr></thead><tbody>${rows}</tbody></table>`;
+}
+
+function onHistoryCbChange(){
+  const checked=document.querySelectorAll('.history-cb:checked');
+  const all=document.querySelectorAll('.history-cb');
+  // 更新全选框状态
+  const selectAll=document.getElementById('selectAllCb');
+  if(selectAll){
+    selectAll.checked=checked.length===all.length && all.length>0;
+    selectAll.indeterminate=checked.length>0 && checked.length<all.length;
+  }
+  // 高亮选中行
+  all.forEach(cb=>{
+    const row=document.getElementById('row-'+cb.value);
+    if(row) row.classList.toggle('selected-row',cb.checked);
+  });
+  // 显示/隐藏批量操作栏
+  const bar=document.getElementById('batchBar');
+  const cnt=document.getElementById('batchCount');
+  if(checked.length>0){bar.classList.add('show');cnt.textContent=checked.length;}
+  else{bar.classList.remove('show');}
+}
+
+function toggleSelectAll(cb){
+  document.querySelectorAll('.history-cb').forEach(el=>{
+    el.checked=cb.checked;
+    const row=document.getElementById('row-'+el.value);
+    if(row) row.classList.toggle('selected-row',cb.checked);
+  });
+  const bar=document.getElementById('batchBar');
+  const cnt=document.getElementById('batchCount');
+  const checked=document.querySelectorAll('.history-cb:checked');
+  if(checked.length>0){bar.classList.add('show');cnt.textContent=checked.length;}
+  else{bar.classList.remove('show');}
+}
+
+function clearSelection(){
+  document.querySelectorAll('.history-cb').forEach(el=>{el.checked=false;});
+  const selectAll=document.getElementById('selectAllCb');
+  if(selectAll){selectAll.checked=false;selectAll.indeterminate=false;}
+  document.querySelectorAll('.selected-row').forEach(r=>r.classList.remove('selected-row'));
+  document.getElementById('batchBar').classList.remove('show');
+}
+
+function confirmDeleteSelected(){
+  const ids=[...document.querySelectorAll('.history-cb:checked')].map(cb=>cb.value);
+  if(!ids.length) return;
+  showConfirm('批量删除记录',`确定删除选中的 ${ids.length} 条历史记录吗？此操作不可撤销！`, async()=>{
+    let ok=0,fail=0;
+    for(const id of ids){
+      try{ await fetch(`/memory/${id}`,{method:'DELETE'}); ok++; }
+      catch(e){ fail++; }
+    }
+    toast(fail?`已删除 ${ok} 条，${fail} 条失败`:`已删除 ${ok} 条记录`);
+    loadHistory(); loadMemStats();
+  });
 }
 
 async function loadMemStats(){
@@ -1552,13 +1701,88 @@ function closeSettings(e){
 }
 
 async function loadPresets(){
-  if(Object.keys(MODEL_PRESETS).length) return;
   try{
     const r=await fetch('/model/presets');
     const d=await r.json();
     MODEL_PRESETS=d.presets||{};
     renderProviderGrid();
+    // presets 加载完后重刷模型指示器（确保 provider 名称正确显示）
+    await refreshModelIndicator();
   }catch(e){}
+}
+
+// 自定义提供商 localStorage 键
+const CUSTOM_PROVIDERS_KEY = 'ai_agent_custom_providers';
+let customProviders = {}; // { key: {name, base_url, model, docs} }
+
+// ─── 各提供商 API Key 多份缓存（明文存 localStorage，仅本地使用）───────────
+const PROVIDER_KEYS_KEY = 'ai_agent_provider_keys';
+// 结构：{ deepseek: 'sk-xxx', openai: 'sk-xxx', ... }
+let providerKeys = {};
+
+function loadProviderKeys(){
+  try{
+    const raw=localStorage.getItem(PROVIDER_KEYS_KEY);
+    if(raw) providerKeys=JSON.parse(raw);
+  }catch(e){ providerKeys={}; }
+}
+
+function saveProviderKeys(){
+  localStorage.setItem(PROVIDER_KEYS_KEY, JSON.stringify(providerKeys));
+}
+
+/** 清除所有提供商的本地缓存 API Key（同时清除服务端保存的 Key） */
+function confirmClearAllKeys(){
+  showConfirm(
+    '清除全部 API Key',
+    '将同时清除：① 浏览器本地缓存的所有 Key ② 服务端 config 文件中保存的 Key。清除后需重新配置才能使用。确定继续吗？',
+    async ()=>{
+      // 1. 清除浏览器本地缓存
+      providerKeys = {};
+      saveProviderKeys();
+
+      // 2. 清除服务端保存的 Key
+      try{
+        const r = await fetch('/model/config/key', {method:'DELETE'});
+        const d = await r.json();
+        if(!r.ok) throw new Error(d.detail||'服务端清除失败');
+      }catch(e){
+        toast('服务端 Key 清除失败：'+e.message, 'fail');
+        return;
+      }
+
+      // 3. 更新 UI
+      document.getElementById('cfgApiKey').value = '';
+      document.getElementById('cfgApiKey').placeholder = 'sk-...（请重新填写 API Key）';
+      const keyStatus = document.getElementById('cfgKeyStatus');
+      if(keyStatus) keyStatus.textContent = '';
+      // 顶栏指示器更新
+      document.getElementById('modelDot').style.background = 'var(--red)';
+      renderProviderGrid();
+      toast('已彻底清除全部 API Key，请重新配置', 'ok', 4000);
+    }
+  );
+}
+
+/** 某个提供商已缓存的 key，无则返回 '' */
+function getProviderKey(providerKey){
+  return providerKeys[providerKey]||'';
+}
+
+function loadCustomProviders(){
+  try{
+    const raw=localStorage.getItem(CUSTOM_PROVIDERS_KEY);
+    if(raw) customProviders=JSON.parse(raw);
+  }catch(e){ customProviders={}; }
+}
+
+function saveCustomProviders(){
+  localStorage.setItem(CUSTOM_PROVIDERS_KEY, JSON.stringify(customProviders));
+}
+
+function getMergedPresets(){
+  // 合并内置 + 自定义，自定义覆盖同名 key
+  return {...MODEL_PRESETS, ...customProviders};
 }
 
 function renderProviderGrid(){
@@ -1567,23 +1791,120 @@ function renderProviderGrid(){
     deepseek:'性价比极高',qwen:'阿里云通义',wenxin:'百度文心',
     moonshot:'Kimi',zhipu:'智谱GLM',openai:'GPT系列',custom:'自定义'
   };
-  grid.innerHTML=Object.entries(MODEL_PRESETS).map(([k,v])=>`
-    <div class="provider-btn ${k===selectedProvider?'selected':''}" onclick="selectProvider('${k}')">
-      <div class="pname">${v.name||k}</div>
-      <div class="pdesc">${descriptions[k]||''}</div>
-    </div>`).join('');
+  const all=getMergedPresets();
+  grid.innerHTML=Object.entries(all).map(([k,v])=>{
+    const isCustom=!!customProviders[k];
+    const hasKey=!!providerKeys[k];
+    const delBtn=isCustom
+      ? `<button class="pdel" onclick="deleteCustomProvider(event,'${k}')" title="删除此提供商">✕</button>`
+      : '';
+    const keyDot=hasKey
+      ? `<span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--green);margin-left:4px;vertical-align:middle" title="已保存 API Key"></span>`
+      : '';
+    return `<div class="provider-btn ${k===selectedProvider?'selected':''}" onclick="selectProvider('${k}')">
+      ${delBtn}
+      <div class="pname">${v.name||k}${keyDot}</div>
+      <div class="pdesc">${isCustom?'自定义':descriptions[k]||''}</div>
+    </div>`;
+  }).join('')
+  + `<div class="add-provider-btn" onclick="showAddProviderForm()">➕ 添加提供商</div>`;
+}
+
+function showAddProviderForm(){
+  const form=document.getElementById('addProviderForm');
+  form.classList.add('show');
+  document.getElementById('apfName').focus();
+}
+
+function hideAddProviderForm(){
+  document.getElementById('addProviderForm').classList.remove('show');
+  ['apfName','apfModel','apfBaseUrl','apfDocs'].forEach(id=>document.getElementById(id).value='');
+}
+
+function saveCustomProvider(){
+  const name=document.getElementById('apfName').value.trim();
+  const model=document.getElementById('apfModel').value.trim();
+  const baseUrl=document.getElementById('apfBaseUrl').value.trim();
+  const docs=document.getElementById('apfDocs').value.trim();
+  if(!name){toast('请填写提供商名称','fail');document.getElementById('apfName').focus();return;}
+  if(!model){toast('请填写默认模型','fail');document.getElementById('apfModel').focus();return;}
+  if(!baseUrl){toast('请填写 Base URL','fail');document.getElementById('apfBaseUrl').focus();return;}
+
+  // key = 小写英文+数字，冲突时加数字后缀
+  let key=name.toLowerCase().replace(/[^a-z0-9]/g,'').substring(0,20)||'custom'+Date.now();
+  if(MODEL_PRESETS[key] || (customProviders[key] && customProviders[key].name!==name)){
+    key='cp_'+Date.now();
+  }
+  customProviders[key]={name, base_url:baseUrl, model, docs, key_env:''};
+  saveCustomProviders();
+  hideAddProviderForm();
+  renderProviderGrid();
+  // 自动选中刚添加的
+  selectProvider(key);
+  toast(`已添加提供商「${name}」`);
+}
+
+function deleteCustomProvider(e, key){
+  e.stopPropagation();
+  const p=customProviders[key];
+  if(!p) return;
+  showConfirm('删除提供商',`确定删除「${p.name}」吗？已保存的 API Key 不受影响。`,()=>{
+    delete customProviders[key];
+    saveCustomProviders();
+    if(selectedProvider===key) selectedProvider='deepseek';
+    renderProviderGrid();
+    toast(`已删除提供商「${p.name}」`);
+  });
+}
+
+function syncModelTagHighlight(val){
+  document.querySelectorAll('.model-tag').forEach(t=>{
+    t.classList.toggle('active', t.textContent.trim()===val);
+  });
+}
+
+function renderModelTags(models, currentModel){
+  const list = document.getElementById('modelTagList');
+  if(!list) return;
+  if(!models || !models.length){list.innerHTML='';return;}
+  list.innerHTML = models.map(m=>`
+    <span class="model-tag ${m===currentModel?'active':''}" onclick="pickModel('${m}')">${m}</span>
+  `).join('');
+}
+
+function pickModel(m){
+  document.getElementById('cfgModel').value = m;
+  // 更新标签高亮
+  document.querySelectorAll('.model-tag').forEach(t=>{
+    t.classList.toggle('active', t.textContent.trim()===m);
+  });
 }
 
 function selectProvider(key){
   selectedProvider=key;
-  const preset=MODEL_PRESETS[key];
+  const preset=getMergedPresets()[key];
   if(!preset) return;
   renderProviderGrid();
   document.getElementById('cfgBaseUrl').value=preset.base_url||'';
   document.getElementById('cfgModel').value=preset.model||'';
+  renderModelTags(preset.models||[], preset.model||'');
   const docsHint=document.getElementById('cfgDocsHint');
   docsHint.innerHTML=preset.docs?`获取 API Key: <a href="${preset.docs}" target="_blank" style="color:var(--accent)">${preset.docs}</a>`:''
   document.getElementById('testResult').className='test-result';
+
+  // 自动回填该提供商已缓存的 Key
+  const cachedKey = getProviderKey(key);
+  const apiKeyInput = document.getElementById('cfgApiKey');
+  const keyStatus = document.getElementById('cfgKeyStatus');
+  if(cachedKey){
+    apiKeyInput.value = cachedKey;
+    apiKeyInput.placeholder = '已自动填入已保存的 Key';
+    if(keyStatus) keyStatus.textContent = '✓ 已配置';
+  } else {
+    apiKeyInput.value = '';
+    apiKeyInput.placeholder = 'sk-...（此提供商暂无保存的 Key）';
+    if(keyStatus) keyStatus.textContent = '';
+  }
 }
 
 async function loadCurrentConfig(){
@@ -1591,10 +1912,33 @@ async function loadCurrentConfig(){
     const r=await fetch('/model/config');
     const d=await r.json();
     selectedProvider=d.provider||'deepseek';
-    document.getElementById('cfgApiKey').value='';
-    document.getElementById('cfgApiKey').placeholder=d.api_key||'当前已配置，输入新Key覆盖';
+
+    // 优先用本地缓存的明文 Key 回填（方便直接切换）
+    const cachedKey = getProviderKey(selectedProvider);
+    const maskedKey = d.api_key || '';
+    const apiKeyInput = document.getElementById('cfgApiKey');
+    const keyStatus = document.getElementById('cfgKeyStatus');
+
+    if(cachedKey){
+      apiKeyInput.value = cachedKey;
+      apiKeyInput.placeholder = '已自动填入已保存的 Key';
+      if(keyStatus) keyStatus.textContent = '✓ 已配置';
+    } else {
+      apiKeyInput.value = '';
+      apiKeyInput.placeholder = maskedKey
+        ? `当前已配置：${maskedKey}（填入完整 Key 并保存后可自动切换）`
+        : 'sk-...';
+      if(keyStatus) keyStatus.textContent = maskedKey ? '✓ 已配置' : '';
+    }
+
     document.getElementById('cfgBaseUrl').value=d.base_url||'';
     document.getElementById('cfgModel').value=d.model||'';
+    document.getElementById('cfgProxy').value=d.proxy||'';
+
+    // 渲染当前提供商的模型列表，并高亮当前使用中的模型
+    const preset = getMergedPresets()[selectedProvider]||{};
+    renderModelTags(preset.models||[], d.model||'');
+
     renderProviderGrid();
     updateModelIndicator(d);
   }catch(e){}
@@ -1604,19 +1948,24 @@ async function saveModelConfig(){
   const key=document.getElementById('cfgApiKey').value.trim();
   const baseUrl=document.getElementById('cfgBaseUrl').value.trim();
   const model=document.getElementById('cfgModel').value.trim();
+  const proxy=document.getElementById('cfgProxy').value.trim();
 
   if(!baseUrl){toast('Base URL 不能为空','fail');return;}
   if(!model){toast('Model Name 不能为空','fail');return;}
 
-  let apiKey=key;
-  if(!apiKey){toast('请输入 API Key','fail'); return;}
+  // 若填了 Key，缓存到本地（供之后切换自动回填）
+  if(key){
+    providerKeys[selectedProvider]=key;
+    saveProviderKeys();
+  }
 
   try{
     const r=await fetch('/model/config',{
       method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({provider:selectedProvider,api_key:apiKey,base_url:baseUrl,model})
+      body:JSON.stringify({provider:selectedProvider,api_key:key,base_url:baseUrl,model,proxy})
     });
     const d=await r.json();
+    if(!r.ok){ toast(d.detail||'保存失败','fail'); return; }
     toast(d.message);
     closeSettings();
     refreshModelIndicator();
@@ -1627,16 +1976,30 @@ async function testConnection(){
   const key=document.getElementById('cfgApiKey').value.trim();
   const baseUrl=document.getElementById('cfgBaseUrl').value.trim();
   const model=document.getElementById('cfgModel').value.trim();
+  const proxy=document.getElementById('cfgProxy').value.trim();
   const el=document.getElementById('testResult');
 
-  if(!key||!baseUrl||!model){el.className='test-result fail';el.textContent='请先填写完整配置';return;}
+  if(!baseUrl||!model){el.className='test-result fail';el.textContent='请先填写 Base URL 和 Model Name';el.style.display='block';return;}
+  // key 未填时尝试用已保存的 key 测试
+  let testKey = key;
+  if(!testKey){
+    try{
+      const r=await fetch('/model/config');
+      const d=await r.json();
+      // 服务端返回的是脱敏 key，无法直接用于测试，提示用户填入
+      el.className='test-result fail';
+      el.textContent='测试需要填写完整 API Key（已保存的 Key 已脱敏，无法直接测试）';
+      el.style.display='block';
+      return;
+    }catch(e){}
+  }
 
   el.className='test-result';el.textContent='测试中...';el.style.display='block';
 
   try{
     const r=await fetch('/model/test',{
       method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({provider:selectedProvider,api_key:key,base_url:baseUrl,model})
+      body:JSON.stringify({provider:selectedProvider,api_key:testKey,base_url:baseUrl,model,proxy})
     });
     const d=await r.json();
     el.className=`test-result ${r.ok?'ok':'fail'}`;
@@ -1650,13 +2013,19 @@ async function testConnection(){
 async function refreshModelIndicator(){
   try{
     const r=await fetch('/model/config');
+    if(!r.ok) throw new Error('HTTP '+r.status);
     const d=await r.json();
     updateModelIndicator(d);
-  }catch(e){}
+  }catch(e){
+    // 获取配置失败时不要一直显示"加载中"，显示提示
+    const el=document.getElementById('modelLabel');
+    if(el && el.textContent==='加载中...') el.textContent='点击配置模型';
+  }
 }
 
 function updateModelIndicator(cfg){
-  const preset=MODEL_PRESETS[cfg.provider]||{};
+  if(!cfg) return;
+  const preset=getMergedPresets()[cfg.provider]||{};
   const label=`${preset.name||cfg.provider} · ${cfg.model||'?'}`;
   document.getElementById('modelLabel').textContent=label;
   document.getElementById('modelLabel').title=label;
@@ -1666,8 +2035,9 @@ function updateModelIndicator(cfg){
 // 初始化
 // ═══════════════════════════════════════════════
 async function init(){
-  await loadPresets();
-  await refreshModelIndicator();
+  loadCustomProviders();    // 从 localStorage 加载自定义提供商（必须在 loadPresets 前）
+  loadProviderKeys();       // 从 localStorage 加载各提供商 API Key 缓存
+  await loadPresets();      // loadPresets 内部会调 refreshModelIndicator
   loadCustomTags();         // 从 localStorage 加载自定义快捷指令
   selectOS('linux');   // 默认 Linux 模式，正确渲染选中状态
 }
