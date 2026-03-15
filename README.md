@@ -35,6 +35,10 @@
 
 ![img](https://cdn.jsdmirror.com/gh/hzhsec/upload@main/20260314172634588.png)
 
+**模型配置**
+
+![image.png](https://cdn.jsdmirror.com/gh/hzhsec/upload@main/20260315200331184.png)
+
 ------
 
 ## 快速开始
