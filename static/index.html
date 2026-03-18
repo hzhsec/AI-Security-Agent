@@ -364,9 +364,9 @@ input[type=checkbox]{width:14px;height:14px;accent-color:var(--accent);cursor:po
 
 <!-- 顶栏 -->
 <header>
-  <span class="logo">🤖</span>
+  <span class="logo">[Agent]</span>
   <h1>AI Agent运维辅助工具</h1>
-  <span class="badge">v1.3</span>
+  <span class="badge">v1.4</span>
   <div class="model-indicator" onclick="openSettings()" title="点击配置模型">
     <div class="model-dot" id="modelDot"></div>
     <span id="modelLabel">加载中...</span>
@@ -550,18 +550,21 @@ input[type=checkbox]{width:14px;height:14px;accent-color:var(--accent);cursor:po
 <div id="tab-knowledge" class="tab-panel">
   <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px">
     <span style="font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.8px;font-weight:600;flex:1">🧠 工具使用经验库</span>
-    <button class="btn btn-outline btn-sm" onclick="loadKnowledge()">刷新</button>
-    <button class="btn btn-sm" style="background:var(--purple);color:#000" onclick="toggleLearnPanel()">🤖 让AI自学工具</button>
-    <button class="btn btn-sm" onclick="showAddKnowledge()">+ 手动添加</button>
+    <button class="btn btn-outline btn-sm" onclick="loadKnowledge()">🔄 刷新</button>
+    <button class="btn btn-sm" style="background:var(--purple);color:#000" onclick="toggleLearnPanel()">🤖 让AI学习</button>
+    <button class="btn btn-sm" onclick="showAddKnowledge()">➕ 手动添加</button>
+    <button class="btn btn-outline btn-sm" onclick="exportKnowledge()">📤 导出</button>
+    <button class="btn btn-outline btn-sm" onclick="document.getElementById('importFile').click()">📥 导入</button>
+    <input type="file" id="importFile" accept=".json" style="display:none" onchange="importKnowledge(this)">
   </div>
 
-  <!-- AI 自学面板 -->
+  <!-- AI 自学面板（包含参考资料输入） -->
   <div class="learn-panel" id="learnPanel" style="display:none">
     <div class="learn-panel-title">
-      🤖 AI 主动探索工具用法
-      <span style="font-size:11px;font-weight:400;color:var(--muted)">— 发给 AI，让它自己跑命令把工具研究透，用法存档备用</span>
+      🤖 AI 验证学习工具用法
+      <span style="font-size:11px;font-weight:400;color:var(--muted)">— AI 会分析参考资料并验证每个命令是否有效，然后存档</span>
     </div>
-    <div class="learn-inputs">
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">
       <div>
         <label class="field-label">工具名称</label>
         <input type="text" id="learnToolName" placeholder="如: whocheck, lynis, chkrootkit"/>
@@ -570,12 +573,14 @@ input[type=checkbox]{width:14px;height:14px;accent-color:var(--accent);cursor:po
         <label class="field-label">工具路径（在目标机器上）</label>
         <input type="text" id="learnToolPath" placeholder="如: /root/check/whocheck"/>
       </div>
-      <div style="padding-bottom:1px">
-        <button class="btn btn-sm" style="background:var(--purple);color:#000;height:38px" id="learnBtn" onclick="startLearn()">🚀 开始自学</button>
-      </div>
     </div>
-    <div style="font-size:11px;color:var(--muted);margin-top:8px;line-height:1.6">
-      💡 AI 会依次执行：查看帮助 → 读源码注释 → 试运行 → 测试参数 → 总结用法，全程自动，结果自动存档
+    <div style="margin-bottom:12px">
+      <label class="field-label">📥 参考资料（可选，从网上搜索后粘贴，会自动清理格式）</label>
+      <textarea id="learnRefContent" rows="4" placeholder="在网上搜索工具使用方法，然后复制粘贴到这里...&#10;AI 会分析这些资料并验证哪些命令有效。&#10;如果不填资料，AI 会自己探索。"></textarea>
+    </div>
+    <div style="display:flex;align-items:center;gap:10px">
+      <button class="btn btn-sm" style="background:var(--purple);color:#000" id="learnBtn" onclick="startLearn()">🚀 开始学习验证</button>
+      <span style="font-size:11px;color:var(--muted)">AI 会逐一验证命令有效性，只存能用的</span>
     </div>
 
     <!-- 进度展示 -->
@@ -590,19 +595,20 @@ input[type=checkbox]{width:14px;height:14px;accent-color:var(--accent);cursor:po
     </div>
   </div>
 
+  <!-- 学习说明 -->
   <div style="font-size:12px;color:var(--muted);margin-bottom:16px;background:rgba(88,166,255,.06);border:1px solid rgba(88,166,255,.2);border-radius:7px;padding:10px 14px;line-height:1.6">
-    🤖 <b>三层学习机制：</b>① AI自主探索（点击「让AI自学工具」） ② 执行任务时命令失败自动记录 ③ AI 发现正确用法主动上报。经验会在下次执行时自动注入到 AI 上下文。
+    💡 <b>使用方式：</b>先在网上搜索工具用法 → 粘贴到「让AI学习」面板 → AI验证命令有效性并学会怎么用 → 自动存入知识库
   </div>
 
   <div class="knowledge-grid">
     <!-- 左：工具列表 -->
     <div class="knowledge-list">
       <div class="knowledge-list-header">
-        工具列表
+        📋 已学习的工具
         <span id="knowledgeCount" style="font-weight:400;color:var(--muted)"></span>
       </div>
       <div class="knowledge-items" id="knowledgeItems">
-        <div class="empty">加载中...</div>
+        <div class="empty">暂无工具<br><small>点击上方「让AI学习」开始</small></div>
       </div>
     </div>
 
@@ -610,8 +616,8 @@ input[type=checkbox]{width:14px;height:14px;accent-color:var(--accent);cursor:po
     <div class="knowledge-detail" id="knowledgeDetail">
       <div class="no-selection">
         <span style="font-size:32px">🧠</span>
-        <span>选择左侧工具查看详情</span>
-        <span style="font-size:12px;color:var(--muted)">或点击「让AI自学工具」主动探索</span>
+        <span>点击左侧工具查看详情</span>
+        <span style="font-size:12px;color:var(--muted)">或点击「让AI学习」添加新工具</span>
       </div>
     </div>
   </div>
@@ -735,7 +741,7 @@ input[type=checkbox]{width:14px;height:14px;accent-color:var(--accent);cursor:po
       </div>
       <div class="form-row">
         <label class="field-label">Base URL</label>
-        <input type="text" id="cfgBaseUrl" placeholder="https://api.deepseek.com"/>
+        <input type="text" id="cfgBaseUrl" placeholder="https://api.example.com/v1"/>
       </div>
       <div class="form-row">
         <label class="field-label">Model Name</label>
@@ -780,7 +786,7 @@ input[type=checkbox]{width:14px;height:14px;accent-color:var(--accent);cursor:po
 let currentEventSource = null;
 let stepCount = 0;
 let currentTaskId = null;
-let selectedProvider = 'deepseek';
+let selectedProvider = '';
 let MODEL_PRESETS = {};
 
 // 对话状态
@@ -1239,6 +1245,68 @@ async function sendChat(){
 }
 
 // ═══════════════════════════════════════════════
+// 工具知识库 - 导入/导出
+// ═══════════════════════════════════════════════
+async function exportKnowledge(){
+  try{
+    console.log('开始导出...');
+    const resp = await fetch('/tool-knowledge/export');
+    console.log('响应状态:', resp.status);
+    if(!resp.ok){
+      const err = await resp.text();
+      console.error('导出失败:', err);
+      throw new Error('HTTP ' + resp.status);
+    }
+    const blob = await resp.blob();
+    console.log('Blob大小:', blob.size);
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `tool_knowledge_${new Date().toISOString().slice(0,10)}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    showToast('✅ 知识库已导出', 'success');
+  }catch(e){
+    console.error('导出错误:', e);
+    showToast('❌ 导出失败: ' + e.message, 'error');
+  }
+}
+
+async function importKnowledge(input){
+  const file = input.files[0];
+  if(!file) return;
+  try{
+    const text = await file.text();
+    const data = JSON.parse(text);
+    const resp = await fetch('/tool-knowledge/import', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({data: data, mode: 'merge'})
+    });
+    const result = await resp.json();
+    if(result.success){
+      showToast(`✅ 导入成功: ${result.imported_count} 个工具`, 'success');
+      // 延迟刷新确保数据已写入
+      setTimeout(() => {
+        loadKnowledge();
+        // 如果有导入的工具，自动选中第一个
+        if(data.tools && Object.keys(data.tools).length > 0){
+          const firstTool = Object.keys(data.tools)[0];
+          selectTool(firstTool);
+        }
+      }, 300);
+    }else{
+      showToast('❌ 导入失败: ' + result.message, 'error');
+    }
+  }catch(e){
+    showToast('❌ 导入失败: ' + e.message, 'error');
+  }
+  input.value = '';
+}
+
+// ═══════════════════════════════════════════════
 // 工具知识库
 // ═══════════════════════════════════════════════
 async function loadKnowledge(){
@@ -1284,7 +1352,7 @@ function selectTool(toolName){
 function renderKnowledgeDetail(rec){
   const container = document.getElementById('knowledgeDetail');
   if(!rec){
-    container.innerHTML = '<div class="no-selection"><span style="font-size:32px">🧠</span><span>选择左侧工具查看详情</span></div>';
+    container.innerHTML = '<div class="no-selection"><span style="font-size:32px">🧠</span><span>点击左侧工具查看详情</span></div>';
     return;
   }
 
@@ -1294,45 +1362,88 @@ function renderKnowledgeDetail(rec){
   const isAiExplored = rec.source === 'ai_explore';
   const toolPath = rec.tool_path || '';
 
-  container.innerHTML = `
-    <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px;flex-wrap:wrap">
-      <span style="font-size:18px;font-family:monospace;font-weight:700">${esc(rec.tool)}</span>
-      ${isAiExplored ? `<span class="ki-badge ai">🤖 AI探索</span>` : ''}
-      ${toolPath ? `<span style="font-size:11px;color:var(--muted);font-family:monospace">${esc(toolPath)}</span>` : ''}
-      <span style="font-size:11px;color:var(--muted);margin-left:auto">更新: ${updatedAt}</span>
-      <button class="btn btn-xs" style="background:var(--purple);color:#000" onclick="relearn('${esc(rec.tool)}','${esc(toolPath)}')">🤖 重新探索</button>
-      <button class="btn btn-red btn-xs" onclick="deleteToolKnowledge('${esc(rec.tool)}')">删除</button>
-    </div>
-
-    ${rec.help_summary ? `<div class="kd-section">
-      <div class="kd-section-title blue">📄 帮助文档摘要</div>
-      <div class="output-box">${esc(rec.help_summary)}</div>
-    </div>` : ''}
-
-    ${rec.summary && rec.summary !== rec.help_summary ? `<div class="kd-section">
-      <div class="kd-section-title purple">🧠 AI 探索总结</div>
-      <div style="font-size:13px;line-height:1.7;color:var(--text)">${esc(rec.summary)}</div>
-    </div>` : ''}
-
-    ${hints.length ? `<div class="kd-section">
-      <div class="kd-section-title green">✓ 正确用法 (${hints.length}条)</div>
-      ${hints.map(h=>`<div class="hint-item">${esc(h)}</div>`).join('')}
-    </div>` : ''}
-
-    ${errors.length ? `<div class="kd-section">
-      <div class="kd-section-title red">✗ 已知错误记录 (${errors.length}条)</div>
-      ${errors.slice().reverse().map(e=>`<div class="error-item">
-        <div class="err-cmd">✗ ${esc(e.failed_command||'')}</div>
-        ${e.error_output ? `<div class="err-out">&nbsp;&nbsp;错误: ${esc(e.error_output)}</div>` : ''}
-        ${e.fixed_command ? `<div class="fix-cmd">✓ ${esc(e.fixed_command)}</div>` : ''}
-        <div style="font-size:10px;color:var(--muted);margin-top:4px">${e.timestamp ? new Date(e.timestamp*1000).toLocaleString('zh-CN') : ''}</div>
-      </div>`).join('')}
-    </div>` : ''}
-
-    <div style="margin-top:16px;display:flex;gap:8px">
-      <button class="btn btn-ghost btn-sm" onclick="showEditKnowledge('${esc(rec.tool)}')">✏ 补充知识</button>
+  // 顶部操作栏
+  let html = `
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:20px;flex-wrap:wrap">
+      <span style="font-size:20px;font-weight:700">${esc(rec.tool)}</span>
+      ${toolPath ? `<code style="background:var(--bg);padding:4px 8px;border-radius:4px;font-size:12px">${esc(toolPath)}</code>` : ''}
     </div>
   `;
+
+  // 工具简介（如果有）
+  if(rec.summary){
+    html += `<div style="margin-bottom:20px;padding:12px;background:var(--bg);border-radius:8px;border-left:3px solid var(--accent)">
+      <div style="font-size:12px;color:var(--muted);margin-bottom:4px">工具简介</div>
+      <div style="font-size:14px;line-height:1.6">${esc(rec.summary)}</div>
+    </div>`;
+  }
+
+  // 正确用法（核心）
+  if(hints.length){
+    html += `<div style="margin-bottom:20px">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
+        <span style="font-size:14px;font-weight:600">✅ 可用命令</span>
+        <span style="font-size:11px;color:var(--muted)">${hints.length}条</span>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:8px">
+        ${hints.map(h=>`
+          <div style="background:var(--bg);padding:10px 14px;border-radius:6px;font-family:monospace;font-size:13px;line-height:1.5">
+            ${esc(h)}
+          </div>
+        `).join('')}
+      </div>
+    </div>`;
+  }
+
+  // 帮助信息（如果有）
+  if(rec.help_summary && rec.help_summary !== rec.summary){
+    html += `<div style="margin-bottom:20px">
+      <div style="font-size:12px;font-weight:600;color:var(--muted);margin-bottom:8px">📖 帮助信息</div>
+      <div style="background:var(--bg);padding:12px;border-radius:6px;font-size:12px;line-height:1.6;color:var(--text);white-space:pre-wrap;max-height:200px;overflow-y:auto">${esc(rec.help_summary)}</div>
+    </div>`;
+  }
+
+  // 错误记录（如果有）
+  if(errors.length){
+    html += `<div style="margin-bottom:20px">
+      <div style="font-size:12px;font-weight:600;color:var(--red);margin-bottom:8px">⚠️ 已知错误 (${errors.length})</div>
+      ${errors.slice(-3).reverse().map(e=>`
+        <div style="background:var(--bg);padding:10px;border-radius:6px;margin-bottom:8px;font-size:12px">
+          <div style="color:var(--red)">✗ ${esc(e.failed_command||'')}</div>
+          ${e.error_output ? `<div style="color:var(--muted);margin-top:4px">${esc(e.error_output.substring(0,100))}</div>` : ''}
+          ${e.fixed_command ? `<div style="color:var(--green);margin-top:4px">✓ 正确: ${esc(e.fixed_command)}</div>` : ''}
+        </div>
+      `).join('')}
+    </div>`;
+  }
+
+  // 底部操作
+  html += `
+    <div style="margin-top:20px;padding-top:16px;border-top:1px solid var(--border);display:flex;gap:10px;flex-wrap:wrap">
+      <button class="btn btn-sm" style="background:var(--purple);color:#000" onclick="relearn('${esc(rec.tool)}','${esc(toolPath)}')">🔄 重新学习</button>
+      <button class="btn btn-outline btn-sm" onclick="showEditTool('${esc(rec.tool)}')">✏ 编辑</button>
+      <button class="btn btn-outline btn-sm" style="color:var(--red);border-color:var(--red)" onclick="deleteToolKnowledge('${esc(rec.tool)}')">🗑 删除</button>
+      <span style="font-size:11px;color:var(--muted);margin-left:auto;align-self:center">更新于 ${updatedAt}</span>
+    </div>
+  `;
+
+  container.innerHTML = html;
+}
+
+// 清除参考资料
+async function clearRef(toolName){
+  if(!confirm(`确定要清除工具 "${toolName}" 的参考资料吗？`)) return;
+  try{
+    const resp = await fetch(`/tool-knowledge/reference/${encodeURIComponent(toolName)}`, {method:'DELETE'});
+    if(resp.ok){
+      alert('已清除参考资料');
+      loadKnowledge(); // 刷新
+    }else{
+      alert('清除失败');
+    }
+  }catch(e){
+    alert('错误: ' + e.message);
+  }
 }
 
 function showAddKnowledge(){
@@ -1344,6 +1455,93 @@ function showEditKnowledge(toolName){
   document.getElementById('addKnowledgePanel').style.display = 'block';
   document.getElementById('ak_tool').value = toolName;
   document.getElementById('ak_tool').scrollIntoView({behavior:'smooth'});
+}
+
+// 编辑工具（修改路径、简介等）
+function showEditTool(toolName){
+  const rec = knowledgeData.find(i=>i.tool===toolName);
+  if(!rec) return;
+  
+  // 创建编辑弹窗
+  const modal = document.createElement('div');
+  modal.id = 'editToolModal';
+  modal.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.7);display:flex;align-items:center;justify-content:center;z-index:1000';
+  modal.innerHTML = `
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:24px;width:90%;max-width:500px;max-height:80vh;overflow-y:auto">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px">
+        <span style="font-size:16px;font-weight:600">✏ 编辑工具</span>
+        <button onclick="closeEditToolModal()" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:20px">×</button>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:12px">
+        <div>
+          <label style="font-size:12px;color:var(--muted);margin-bottom:4px;display:block">工具名称</label>
+          <input type="text" id="editToolName" value="${esc(toolName)}" readonly style="width:100%;padding:10px 12px;background:var(--bg);border:1px solid var(--border);border-radius:8px;color:var(--muted)">
+        </div>
+        <div>
+          <label style="font-size:12px;color:var(--muted);margin-bottom:4px;display:block">工具路径</label>
+          <input type="text" id="editToolPath" value="${esc(rec.tool_path||'')}" placeholder="如: /usr/bin/nmap" style="width:100%;padding:10px 12px;background:var(--bg);border:1px solid var(--border);border-radius:8px;color:var(--text)">
+        </div>
+        <div>
+          <label style="font-size:12px;color:var(--muted);margin-bottom:4px;display:block">工具简介</label>
+          <textarea id="editToolSummary" rows="3" placeholder="简短描述工具功能..." style="width:100%;padding:10px 12px;background:var(--bg);border:1px solid var(--border);border-radius:8px;color:var(--text);resize:vertical">${esc(rec.summary||'')}</textarea>
+        </div>
+        <div>
+          <label style="font-size:12px;color:var(--muted);margin-bottom:4px;display:block">帮助信息摘要</label>
+          <textarea id="editToolHelp" rows="4" placeholder="帮助文档摘要..." style="width:100%;padding:10px 12px;background:var(--bg);border:1px solid var(--border);border-radius:8px;color:var(--text);resize:vertical">${esc(rec.help_summary||'')}</textarea>
+        </div>
+      </div>
+      <div style="margin-top:20px;display:flex;gap:10px;justify-content:flex-end">
+        <button class="btn btn-outline" onclick="closeEditToolModal()">取消</button>
+        <button class="btn" style="background:var(--purple);color:#000" onclick="saveEditTool()">保存</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(modal);
+}
+
+function closeEditToolModal(){
+  const modal = document.getElementById('editToolModal');
+  if(modal) modal.remove();
+}
+
+async function saveEditTool(){
+  const toolName = document.getElementById('editToolName').value.trim();
+  const toolPath = document.getElementById('editToolPath').value.trim();
+  const summary = document.getElementById('editToolSummary').value.trim();
+  const helpSummary = document.getElementById('editToolHelp').value.trim();
+  
+  if(!toolName) return;
+  
+  try{
+    // 调用更新接口
+    const r = await fetch('/tool-knowledge', {
+      method:'POST', 
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({
+        tool_name: toolName,
+        usage_hint: '',  // 不修改用法
+        help_text: helpSummary,
+        tool_path: toolPath,
+        summary: summary
+      })
+    });
+    
+    // 更新本地数据
+    const rec = knowledgeData.find(i=>i.tool===toolName);
+    if(rec){
+      rec.tool_path = toolPath;
+      rec.summary = summary;
+      rec.help_summary = helpSummary;
+      rec.updated_at = Date.now()/1000;
+    }
+    
+    closeEditToolModal();
+    renderKnowledgeDetail(rec);
+    renderKnowledgeList();
+    showToast('✅ 已保存修改', 'success');
+  }catch(e){
+    showToast('❌ 保存失败: '+e.message, 'error');
+  }
 }
 
 function hideAddKnowledge(){
@@ -1403,6 +1601,31 @@ function toggleLearnPanel(){
   if(!isVisible) document.getElementById('learnToolName').focus();
 }
 
+
+// 重新学习（带参考资料）
+async function relearnWithRef(toolName, toolPath){
+  // 先展开自学面板
+  document.getElementById('learnPanel').style.display = 'block';
+  document.getElementById('learnToolName').value = toolName;
+  if(toolPath) document.getElementById('learnToolPath').value = toolPath;
+  document.getElementById('learnPanel').scrollIntoView({behavior:'smooth'});
+  document.getElementById('learnToolPath').focus();
+
+  // 检查是否有参考资料
+  try{
+    const resp = await fetch(`/tool-knowledge/reference/${encodeURIComponent(toolName)}`);
+    if(resp.ok){
+      const data = await resp.json();
+      if(confirm(`该工具有已导入的参考资料，是否在自学时使用？\n\n点击"确定"使用资料学习，点击"取消"重新导入新资料`)){
+        // 有资料，直接开始学习即可，AI会自动加载
+        return;
+      }
+    }
+  }catch(e){
+    // 没有参考资料，正常进行
+  }
+}
+
 function relearn(toolName, toolPath){
   // 点「重新探索」：自动填入信息并展开面板
   document.getElementById('learnPanel').style.display = 'block';
@@ -1453,6 +1676,7 @@ function updateLearnStep(step, output, success){
 async function startLearn(){
   const toolName = document.getElementById('learnToolName').value.trim();
   const toolPath = document.getElementById('learnToolPath').value.trim();
+  const refContent = document.getElementById('learnRefContent').value.trim();
 
   if(!toolName){toast('请输入工具名','fail');return;}
   if(!toolPath){toast('请输入工具路径（在目标机器上的路径）','fail');return;}
@@ -1463,15 +1687,29 @@ async function startLearn(){
   document.getElementById('learnResult').style.display = 'none';
   currentLearnStepNo = 0;
   document.getElementById('learnBtn').disabled = true;
-  setLearnStatus('running', `AI 正在探索工具 "${toolName}" 的用法...`);
+  const refHint = refContent ? '（使用参考资料验证）' : '（自行探索）';
+  setLearnStatus('running', `AI 正在${refContent ? '验证' : '探索'}工具 "${toolName}" 的用法 ${refHint}...`);
 
   if(learnEventSource) learnEventSource.close();
 
   try{
+    // 如果填写了参考资料，先导入
+    if(refContent){
+      await fetch('/tool-knowledge/reference', {
+        method: 'POST',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({tool_name: toolName, raw_content: refContent})
+      });
+    }
+
     const resp = await fetch('/tool-knowledge/learn', {
       method: 'POST',
       headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({tool_name: toolName, tool_path: toolPath})
+      body: JSON.stringify({
+        tool_name: toolName,
+        tool_path: toolPath,
+        web_reference: refContent || null
+      })
     });
 
     const reader = resp.body.getReader();
@@ -1851,7 +2089,7 @@ function deleteCustomProvider(e, key){
   showConfirm('删除提供商',`确定删除「${p.name}」吗？已保存的 API Key 不受影响。`,()=>{
     delete customProviders[key];
     saveCustomProviders();
-    if(selectedProvider===key) selectedProvider='deepseek';
+    if(selectedProvider===key) selectedProvider='';
     renderProviderGrid();
     toast(`已删除提供商「${p.name}」`);
   });
@@ -1892,17 +2130,24 @@ function selectProvider(key){
   docsHint.innerHTML=preset.docs?`获取 API Key: <a href="${preset.docs}" target="_blank" style="color:var(--accent)">${preset.docs}</a>`:''
   document.getElementById('testResult').className='test-result';
 
-  // 自动回填该提供商已缓存的 Key
-  const cachedKey = getProviderKey(key);
+  // 自动回填该提供商已缓存的 Key（只有当选中了具体提供商时才回填）
   const apiKeyInput = document.getElementById('cfgApiKey');
   const keyStatus = document.getElementById('cfgKeyStatus');
-  if(cachedKey){
-    apiKeyInput.value = cachedKey;
-    apiKeyInput.placeholder = '已自动填入已保存的 Key';
-    if(keyStatus) keyStatus.textContent = '✓ 已配置';
+  if(key){
+    const cachedKey = getProviderKey(key);
+    if(cachedKey){
+      apiKeyInput.value = cachedKey;
+      apiKeyInput.placeholder = '已自动填入已保存的 Key';
+      if(keyStatus) keyStatus.textContent = '✓ 已配置';
+    } else {
+      apiKeyInput.value = '';
+      apiKeyInput.placeholder = 'sk-...（此提供商暂无保存的 Key）';
+      if(keyStatus) keyStatus.textContent = '';
+    }
   } else {
+    // 未选择提供商时清空
     apiKeyInput.value = '';
-    apiKeyInput.placeholder = 'sk-...（此提供商暂无保存的 Key）';
+    apiKeyInput.placeholder = '请先选择 API 提供商';
     if(keyStatus) keyStatus.textContent = '';
   }
 }
@@ -1911,15 +2156,21 @@ async function loadCurrentConfig(){
   try{
     const r=await fetch('/model/config');
     const d=await r.json();
-    selectedProvider=d.provider||'deepseek';
+    selectedProvider=d.provider||'';
 
     // 优先用本地缓存的明文 Key 回填（方便直接切换）
-    const cachedKey = getProviderKey(selectedProvider);
+    // 注意：如果没有选择提供商，不清空输入框，避免显示其他提供商的key
+    const cachedKey = selectedProvider ? getProviderKey(selectedProvider) : '';
     const maskedKey = d.api_key || '';
     const apiKeyInput = document.getElementById('cfgApiKey');
     const keyStatus = document.getElementById('cfgKeyStatus');
 
-    if(cachedKey){
+    if(!selectedProvider){
+      // 未选择提供商时，清空key输入，不显示任何key
+      apiKeyInput.value = '';
+      apiKeyInput.placeholder = '请先选择 API 提供商';
+      if(keyStatus) keyStatus.textContent = '';
+    } else if(cachedKey){
       apiKeyInput.value = cachedKey;
       apiKeyInput.placeholder = '已自动填入已保存的 Key';
       if(keyStatus) keyStatus.textContent = '✓ 已配置';
@@ -2026,9 +2277,21 @@ async function refreshModelIndicator(){
 function updateModelIndicator(cfg){
   if(!cfg) return;
   const preset=getMergedPresets()[cfg.provider]||{};
-  const label=`${preset.name||cfg.provider} · ${cfg.model||'?'}`;
+  const providerName = preset.name || cfg.provider;
+  const modelName = cfg.model;
+  
+  // 如果没有配置，显示问号
+  if(!providerName && !modelName){
+    document.getElementById('modelLabel').textContent='?';
+    document.getElementById('modelLabel').title='未配置模型，点击配置';
+    document.getElementById('modelDot').style.background='var(--red)';
+    return;
+  }
+  
+  const label=`${providerName||'?'} · ${modelName||'?'}`;
   document.getElementById('modelLabel').textContent=label;
   document.getElementById('modelLabel').title=label;
+  document.getElementById('modelDot').style.background='var(--green)';
 }
 
 // ═══════════════════════════════════════════════

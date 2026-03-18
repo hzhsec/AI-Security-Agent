@@ -5,7 +5,9 @@ import os
 import json
 
 # ─── DeepSeek API 配置（默认） ──────────────────────────────────────────────
-DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY", "your-deepseek-api-key-here")
+# 注意：这些默认值仅在 model_config.json 不存在时使用
+# 实际部署时请通过环境变量或前端配置设置 API Key
+DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY", "")
 DEEPSEEK_BASE_URL = "https://api.deepseek.com"
 DEEPSEEK_MODEL = "deepseek-chat"
 
@@ -325,10 +327,10 @@ MODEL_PRESETS = {
 # ─── 运行时模型配置（持久化到 model_config.json）────────────────────────────
 _MODEL_CONFIG_FILE = "model_config.json"
 _DEFAULT_MODEL_CONFIG = {
-    "provider": "deepseek",
-    "api_key": DEEPSEEK_API_KEY,
-    "base_url": "https://api.deepseek.com",
-    "model": "deepseek-chat",
+    "provider": "",       # 默认未配置，用户需在前端选择提供商
+    "api_key": "",        # 默认空，用户需配置
+    "base_url": "",       # 默认空，根据提供商自动填充
+    "model": "",          # 默认空，用户需配置
     "proxy": "",          # HTTP/HTTPS 代理，如 http://127.0.0.1:7890，留空不使用
 }
 

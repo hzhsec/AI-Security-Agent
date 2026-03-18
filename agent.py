@@ -192,12 +192,55 @@ def parse_ai_response(raw: str) -> Dict[str, Any]:
 
     try:
         return json.loads(raw)
-    except json.JSONDecodeError:
+    except json.JSONDecodeError as e:
         # 尝试提取第一个 JSON 对象
         match = re.search(r'\{.*\}', raw, re.DOTALL)
         if match:
             try:
                 return json.loads(match.group())
+            except Exception:
+                pass
+
+        # 尝试修复截断的 JSON（补全缺失的 ] } " 等）
+        fixed = raw.strip()
+        opens = {"{": 0, "[": 0, "\"": 0}
+        in_string = False
+        escape = False
+
+        for ch in fixed:
+            if escape:
+                escape = False
+                continue
+            if ch == "\\":
+                escape = True
+                continue
+            if ch == "\"" and not escape:
+                in_string = not in_string
+                continue
+            if in_string:
+                continue
+
+            if ch == "{":
+                opens["{"] += 1
+            elif ch == "}":
+                opens["{"] -= 1
+            elif ch == "[":
+                opens["["] += 1
+            elif ch == "]":
+                opens["["] -= 1
+
+        # 补全缺失的闭合符号
+        while opens["["] > 0:
+            fixed += "]"
+            opens["["] -= 1
+        while opens["{"] > 0:
+            fixed += "}"
+            opens["{"] -= 1
+
+        if fixed != raw.strip():
+            try:
+                logger.info(f"[JSON] 尝试修复截断的 JSON，原始长度: {len(raw)}, 修复后: {len(fixed)}")
+                return json.loads(fixed)
             except Exception:
                 pass
 
@@ -294,9 +337,11 @@ class LinuxAgent:
         1. 如果命令失败，自动记录到知识库
         2. 如果 AI 主动上报了 learn_tool/learn_usage，更新知识库
         """
-        tool = action.get("tool", "")
-        learn_tool = action.get("learn_tool", "").strip()
-        learn_usage = action.get("learn_usage", "").strip()
+        tool = action.get("tool", "") or ""
+        learn_tool = (action.get("learn_tool") or "").strip()
+        learn_usage = action.get("learn_usage") or ""
+        if isinstance(learn_usage, str):
+            learn_usage = learn_usage.strip()
 
         if learn_tool and learn_usage:
             tool_knowledge.update_usage(learn_tool, learn_usage)
@@ -351,13 +396,39 @@ class LinuxAgent:
                 return self._build_report(task_id, steps_summary)
 
             action = parse_ai_response(raw_response)
-            thought = action.get("thought", "")
+            
+            # 兼容处理：AI 常见错误 - 用 command 而非 commands
             tool = action.get("tool", "shell")
+            if tool == "shell_batch":
+                # 如果 commands 为空，尝试从 command 转换
+                if not action.get("commands") and action.get("command"):
+                    # 把单条命令转成 commands 数组
+                    single_cmd = action.get("command", "").strip()
+                    if single_cmd:
+                        # 尝试按 && 或 ; 分割
+                        import shlex
+                        try:
+                            cmds = []
+                            for part in shlex.split(single_cmd, posix=False):
+                                if "&&" in part:
+                                    cmds.extend([c.strip() for c in part.split("&&") if c.strip()])
+                                elif ";" in part:
+                                    cmds.extend([c.strip() for c in part.split(";") if c.strip()])
+                                else:
+                                    cmds.append(part)
+                            if cmds:
+                                action["commands"] = cmds
+                                logger.info(f"[ActionFix] 将 command 转换为 commands: {cmds}")
+                        except Exception:
+                            action["commands"] = [single_cmd]
+                            logger.info(f"[ActionFix] 将单条 command 转为 commands: {single_cmd}")
+            
+            thought = action.get("thought", "")
             should_continue = action.get("continue", True)
             command_display = action.get("command") or action.get("path") or action.get("url") or action.get("summary", "")
 
             logger.info(f"[AI thought] {thought}")
-            logger.info(f"[AI action] tool={tool}, command={command_display}")
+            logger.info(f"[AI action] tool={tool}, commands={action.get('commands')}, command={command_display}")
 
             tool_result = dispatcher.dispatch(action)
 
@@ -437,8 +508,29 @@ class LinuxAgent:
                 return
 
             action = parse_ai_response(raw_response)
-            thought = action.get("thought", "")
+            
+            # 兼容处理：AI 常见错误 - 用 command 而非 commands
             tool = action.get("tool", "shell")
+            if tool == "shell_batch":
+                if not action.get("commands") and action.get("command"):
+                    single_cmd = action.get("command", "").strip()
+                    if single_cmd:
+                        import shlex
+                        try:
+                            cmds = []
+                            for part in shlex.split(single_cmd, posix=False):
+                                if "&&" in part:
+                                    cmds.extend([c.strip() for c in part.split("&&") if c.strip()])
+                                elif ";" in part:
+                                    cmds.extend([c.strip() for c in part.split(";") if c.strip()])
+                                else:
+                                    cmds.append(part)
+                            if cmds:
+                                action["commands"] = cmds
+                        except Exception:
+                            action["commands"] = [single_cmd]
+            
+            thought = action.get("thought", "")
             should_continue = action.get("continue", True)
             command_display = action.get("command") or action.get("path") or action.get("url") or action.get("summary", "")
 
@@ -447,7 +539,7 @@ class LinuxAgent:
                 "step": iteration,
                 "thought": thought,
                 "tool": tool,
-                "command": command_display,
+                "command": action.get("commands") or command_display,
             }
 
             tool_result = dispatcher.dispatch(action)

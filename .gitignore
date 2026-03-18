@@ -1,0 +1,32 @@
+# 日志文件
+*.log
+
+# 配置文件（包含敏感信息）
+model_config.json
+
+# 数据文件
+task_history.json
+tool_knowledge.json
+
+# Python 缓存
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# 虚拟环境
+venv/
+env/
+ENV/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# 临时文件
+*.tmp
+*.bak
+routes_output.txt

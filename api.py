@@ -5,6 +5,7 @@ import json
 import logging
 import asyncio
 import threading
+import time
 from typing import Optional, Dict, Any
 
 from fastapi import FastAPI, HTTPException, Query
@@ -39,7 +40,7 @@ logger = logging.getLogger(__name__)
 app = FastAPI(
     title="AI Agent运维管理",
     description="通过 AI 自动执行任务的智能代理系统",
-    version="1.2.0",
+    version="1.4.0",
 )
 
 app.add_middleware(
@@ -104,12 +105,21 @@ class ToolKnowledgeUpdateRequest(BaseModel):
     failed_command: Optional[str] = None
     error_output: Optional[str] = None
     fixed_command: Optional[str] = None
+    tool_path: Optional[str] = None   # 编辑工具路径
+    summary: Optional[str] = None      # 编辑工具简介
 
 
 class ToolLearnRequest(BaseModel):
     """触发 AI 自主学习某个工具"""
     tool_name: str          # 工具名，如 "whocheck"
     tool_path: str          # 工具路径，如 "/root/check/whocheck"
+    web_reference: Optional[str] = None  # 可选的参考资料（从网上搜索后粘贴的内容）
+
+
+class WebReferenceRequest(BaseModel):
+    """导入网上搜索的参考资料"""
+    tool_name: str          # 工具名
+    raw_content: str        # 从网页粘贴的原始内容
 
 
 # ─── 路由 ─────────────────────────────────────────────────────────────────────
@@ -279,7 +289,7 @@ async def health_check():
     return {
         "status": "ok",
         "service": "AI Linux Agent",
-        "version": "1.2.0",
+        "version": "1.4.0",
         "model": f"{cfg.get('provider','?')} / {cfg.get('model','?')}",
     }
 
@@ -599,6 +609,7 @@ async def chat_stream(request: ChatRequest):
     )
 
 
+
 # ─── 工具知识库接口 ───────────────────────────────────────────────────────────
 
 @app.get("/tool-knowledge")
@@ -608,6 +619,48 @@ async def get_tool_knowledge():
     return {"ok": True, "total": len(items), "items": items}
 
 
+# 导入/导出接口（必须在 {tool_name} 之前定义，避免路由冲突）
+@app.get("/tool-knowledge/export")
+async def export_all_knowledge():
+    """导出全部工具知识为JSON文件"""
+    data = tool_knowledge.export_all()
+    from fastapi.responses import JSONResponse
+    return JSONResponse(
+        content=data,
+        media_type="application/json",
+        headers={"Content-Disposition": "attachment; filename=tool_knowledge.json"}
+    )
+
+
+@app.get("/tool-knowledge/export/{tool_name}")
+async def export_one_knowledge(tool_name: str):
+    """导出单个工具的知识"""
+    data = tool_knowledge.export_tool(tool_name)
+    if not data:
+        raise HTTPException(status_code=404, detail=f"工具 {tool_name} 不存在")
+    from fastapi.responses import JSONResponse
+    return JSONResponse(
+        content=data,
+        media_type="application/json",
+        headers={"Content-Disposition": f"attachment; filename={tool_name}_knowledge.json"}
+    )
+
+
+class ImportKnowledgeRequest(BaseModel):
+    data: dict
+    mode: str = "merge"
+
+
+@app.post("/tool-knowledge/import")
+async def import_knowledge(request: ImportKnowledgeRequest):
+    """导入工具知识（merge:合并, replace:替换）"""
+    result = tool_knowledge.import_tool(request.data, mode=request.mode)
+    if not result.get("success"):
+        raise HTTPException(status_code=400, detail=result.get("message", "导入失败"))
+    return result
+
+
+# 参数路由放后面
 @app.get("/tool-knowledge/{tool_name}")
 async def get_one_tool_knowledge(tool_name: str):
     """获取指定工具的知识记录"""
@@ -619,9 +672,7 @@ async def get_one_tool_knowledge(tool_name: str):
 
 @app.post("/tool-knowledge")
 async def update_tool_knowledge(request: ToolKnowledgeUpdateRequest):
-    """
-    手动更新/补充工具知识（用于人工纠正或预先录入）
-    """
+    """手动更新/补充工具知识"""
     tool_name = request.tool_name.strip()
     if not tool_name:
         raise HTTPException(status_code=400, detail="tool_name 不能为空")
@@ -637,6 +688,17 @@ async def update_tool_knowledge(request: ToolKnowledgeUpdateRequest):
             fixed_command=request.fixed_command or "",
         )
 
+    # 更新工具路径和简介
+    rec = tool_knowledge.get(tool_name)
+    if rec:
+        if request.tool_path is not None:
+            rec["tool_path"] = request.tool_path
+        if request.summary is not None:
+            rec["summary"] = request.summary
+        if request.tool_path is not None or request.summary is not None:
+            rec["updated_at"] = time.time()
+            tool_knowledge._save()
+
     return {"ok": True, "message": f"工具 {tool_name} 知识已更新"}
 
 
@@ -649,6 +711,55 @@ async def delete_tool_knowledge(tool_name: str):
     return {"ok": True, "message": f"已删除工具 {tool_name} 的知识记录"}
 
 
+# ─── 外部参考资料接口 ───────────────────────────────────────────────────────────
+
+@app.post("/tool-knowledge/reference")
+async def import_web_reference(request: WebReferenceRequest):
+    """
+    导入从网上搜索并粘贴的参考资料。
+
+    使用流程：
+    1. 用户先在网上搜索工具的使用方法
+    2. 将搜索结果（可能带HTML标签、杂乱格式）粘贴进来
+    3. 系统自动清理格式、提取命令示例
+    4. 后续调用 /tool-knowledge/learn 时会自动使用这些参考资料
+
+    资料会被存储，后续学习时会自动加载。
+    """
+    tool_name = request.tool_name.strip()
+    raw_content = request.raw_content.strip()
+
+    if not tool_name:
+        raise HTTPException(status_code=400, detail="tool_name 不能为空")
+    if not raw_content:
+        raise HTTPException(status_code=400, detail="raw_content 不能为空")
+
+    try:
+        result = tool_knowledge.import_web_reference(tool_name, raw_content)
+        return {"ok": True, **result}
+    except Exception as e:
+        logger.error(f"[API] 导入参考资料失败: {e}")
+        raise HTTPException(status_code=500, detail=f"导入失败: {str(e)}")
+
+
+@app.get("/tool-knowledge/reference/{tool_name}")
+async def get_web_reference(tool_name: str):
+    """获取工具的参考资料"""
+    ref = tool_knowledge.get_web_reference(tool_name)
+    if not ref:
+        raise HTTPException(status_code=404, detail=f"工具 {tool_name} 没有参考资料")
+    return {"ok": True, "tool": tool_name, **ref}
+
+
+@app.delete("/tool-knowledge/reference/{tool_name}")
+async def clear_web_reference(tool_name: str):
+    """清除工具的参考资料"""
+    ok = tool_knowledge.clear_web_reference(tool_name)
+    if not ok:
+        raise HTTPException(status_code=404, detail=f"工具 {tool_name} 没有参考资料")
+    return {"ok": True, "message": f"已清除工具 {tool_name} 的参考资料"}
+
+
 # ─── 工具自学接口 ─────────────────────────────────────────────────────────────
 
 @app.post("/tool-knowledge/learn")
@@ -657,10 +768,14 @@ async def learn_tool(request: ToolLearnRequest):
     触发 AI 自主学习一个工具（流式 SSE）。
     AI 会自己跑 -h、试参数、读源码注释，把用法彻底搞清楚，存入知识库。
 
+    如果请求中包含 web_reference，会一并传给 AI 作为参考资料。
+    也可以先调用 /tool-knowledge/reference 导入资料，再调用此接口学习。
+
     前端使用 EventSource 或 fetch+ReadableStream 接收流式进度。
     """
     tool_name = request.tool_name.strip()
     tool_path = request.tool_path.strip()
+    web_reference = request.web_reference  # 可选的参考资料
 
     if not tool_name or not tool_path:
         raise HTTPException(status_code=400, detail="tool_name 和 tool_path 不能为空")
@@ -671,7 +786,7 @@ async def learn_tool(request: ToolLearnRequest):
 
         def run_learn():
             try:
-                for event in tool_knowledge.stream_learn(tool_name, tool_path):
+                for event in tool_knowledge.stream_learn(tool_name, tool_path, web_reference):
                     loop.call_soon_threadsafe(queue.put_nowait, event)
             except Exception as e:
                 loop.call_soon_threadsafe(
@@ -719,7 +834,7 @@ async def get_learn_status(tool_name: str):
 if __name__ == "__main__":
     print(f"""
 ╔══════════════════════════════════════════╗
-║       AI Linux Agent  v1.0.0             ║
+║       AI Linux Agent  v1.4.0             ║
 ║  http://127.0.0.1:{API_PORT}                    ║
 ║  接口文档: http://127.0.0.1:{API_PORT}/docs    ║
 ╚══════════════════════════════════════════╝
