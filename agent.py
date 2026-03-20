@@ -205,8 +205,16 @@ def get_system_prompt(os_type: str) -> str:
 def parse_ai_response(raw: str) -> Dict[str, Any]:
     """
     从 AI 原始响应中解析 JSON。
-    兼容 AI 偶尔用 markdown 代码块包裹的情况。
+    兼容以下情况：
+    - AI 用 markdown 代码块包裹（```json ... ```）
+    - 带 <think>...</think> 推理标签（MiniMax-M1 / DeepSeek-R1 等思维链模型）
+    - JSON 被截断（自动补全闭合符号）
     """
+    raw = raw.strip()
+
+    # 剥离 <think>...</think> 推理过程（MiniMax-M1、DeepSeek-R1 等模型会输出思维链）
+    # 支持多段 think 标签、大小写不敏感
+    raw = re.sub(r"<think>.*?</think>", "", raw, flags=re.DOTALL | re.IGNORECASE)
     raw = raw.strip()
 
     # 去掉 markdown 代码块
@@ -269,12 +277,13 @@ def parse_ai_response(raw: str) -> Dict[str, Any]:
                 pass
 
         logger.error(f"AI 响应无法解析为 JSON: {raw[:300]}")
-        # 兜底：构造一个 shell 命令尝试（让任务不直接崩溃）
+        # 兜底：返回一个无操作的 shell 命令，让任务继续而非直接崩溃
+        # （下一轮 AI 会看到 "格式错误" 的执行结果，有机会修正）
         return {
-            "thought": f"AI 返回格式异常，原始内容: {raw[:200]}",
-            "tool": "finish",
-            "summary": f"任务因 AI 响应格式错误而终止",
-            "continue": False,
+            "thought": f"AI 返回格式异常（可能包含未剥离的特殊标签），原始内容片段: {raw[:200]}",
+            "tool": "shell",
+            "command": "echo [上一步AI响应格式异常，请继续执行剩余任务]",
+            "continue": True,
         }
 
 
@@ -292,21 +301,44 @@ class LinuxAgent:
         client = make_openai_client(cfg)
         return client, cfg["model"], cfg.get("provider", "unknown")
 
-    def _call_ai(self, messages: List[Dict]) -> str:
-        """调用 AI API，返回原始文本"""
+    def _call_ai(self, messages: List[Dict], stop_event=None) -> str:
+        """
+        调用 AI API，返回原始文本。
+        stop_event: threading.Event，设置后会中断等待并抛出 StopIteration。
+        """
+        import concurrent.futures
         messages = self._compress_messages(messages)
 
         client, model, provider = self._get_client_and_model()
         logger.info(f"[AI] 使用模型: {provider} / {model}")
 
-        response = client.chat.completions.create(
-            model=model,
-            messages=messages,
-            temperature=0.1,
-            max_tokens=4096,
-            response_format={"type": "json_object"},
-        )
-        return response.choices[0].message.content
+        def _do_call():
+            response = client.chat.completions.create(
+                model=model,
+                messages=messages,
+                temperature=0.1,
+                max_tokens=4096,
+                response_format={"type": "json_object"},
+            )
+            return response.choices[0].message.content
+
+        if stop_event is None:
+            # 无停止信号，走原来的同步调用
+            return _do_call()
+
+        # 有停止信号：在线程池中执行，每 0.5s 检查一次 stop_event
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+            future = executor.submit(_do_call)
+            while True:
+                try:
+                    return future.result(timeout=0.5)
+                except concurrent.futures.TimeoutError:
+                    if stop_event.is_set():
+                        future.cancel()
+                        logger.info("[AI] 检测到停止信号，中断 AI API 等待")
+                        raise StopIteration("用户停止任务")
+                except Exception as e:
+                    raise
 
     def _compress_messages(self, messages: List[Dict], keep_recent: int = 10) -> List[Dict]:
         """
@@ -509,23 +541,23 @@ class LinuxAgent:
 
         for iteration in range(1, MAX_ITERATIONS + 1):
 
-            # ── 停止检查 ──────────────────────────────────────────
+            # ── 停止检查（循环开始）────────────────────────────────
             if stop_event is not None and stop_event.is_set():
                 logger.info(f"[Agent] 任务 [{task_id}] 收到停止信号，提前终止")
                 memory.finish_session(task_id, "stopped", "用户手动停止任务")
-                yield {
-                    "event": "stopped",
-                    "task_id": task_id,
-                    "message": "任务已被用户停止",
-                    "steps": steps_summary,
-                }
+                yield {"event": "stopped", "task_id": task_id, "message": "任务已被用户停止", "steps": steps_summary}
                 return
             # ─────────────────────────────────────────────────────
 
             messages = memory.build_messages(task_id, dynamic_system_prompt)
 
             try:
-                raw_response = self._call_ai(messages)
+                # 传入 stop_event，AI 等待期间也能响应停止
+                raw_response = self._call_ai(messages, stop_event=stop_event)
+            except StopIteration:
+                memory.finish_session(task_id, "stopped", "用户手动停止任务")
+                yield {"event": "stopped", "task_id": task_id, "message": "任务已被用户停止（AI调用中断）", "steps": steps_summary}
+                return
             except Exception as e:
                 yield {"event": "error", "message": f"AI API 错误: {e}"}
                 memory.finish_session(task_id, "failed", str(e))
@@ -558,6 +590,13 @@ class LinuxAgent:
             should_continue = action.get("continue", True)
             command_display = action.get("command") or action.get("path") or action.get("url") or action.get("summary", "")
 
+            # ── 停止检查（AI 解析后、工具执行前）─────────────────
+            if stop_event is not None and stop_event.is_set():
+                memory.finish_session(task_id, "stopped", "用户手动停止任务")
+                yield {"event": "stopped", "task_id": task_id, "message": "任务已被用户停止", "steps": steps_summary}
+                return
+            # ─────────────────────────────────────────────────────
+
             yield {
                 "event": "thinking",
                 "step": iteration,
@@ -567,6 +606,13 @@ class LinuxAgent:
             }
 
             tool_result = dispatcher.dispatch(action)
+
+            # ── 停止检查（工具执行后）─────────────────────────────
+            if stop_event is not None and stop_event.is_set():
+                memory.finish_session(task_id, "stopped", "用户手动停止任务")
+                yield {"event": "stopped", "task_id": task_id, "message": "任务已被用户停止", "steps": steps_summary}
+                return
+            # ─────────────────────────────────────────────────────
 
             self._handle_tool_learning(action, tool_result, command_display)
 

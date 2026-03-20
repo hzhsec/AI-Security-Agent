@@ -53,7 +53,7 @@ DANGEROUS_COMMANDS = [
 ]
 
 # ─── 多模型预设配置 ──────────────────────────────────────────────────────────
-# 每个预设包含: name(显示名), base_url, model(默认), models(可选列表), key_env, docs
+# 每个预设包含：name(显示名), base_url, model(默认), models(可选列表), key_env, docs
 MODEL_PRESETS = {
     "deepseek": {
         "name": "DeepSeek",
@@ -169,6 +169,7 @@ MODEL_PRESETS = {
             "doubao-1-5-pro-32k",
             "doubao-1-5-pro-256k",
             "doubao-1-5-lite-32k",
+            # 注：以下 DeepSeek 模型需确认字节平台是否实际支持
             "deepseek-r1-250528",
             "deepseek-v3-250324",
         ],
@@ -193,8 +194,16 @@ MODEL_PRESETS = {
     "minimax": {
         "name": "MiniMax",
         "base_url": "https://api.minimax.chat/v1",
-        "model": "MiniMax-Text-01",
+        "model": "MiniMax-M2.7-highspeed",  # ✅ 更新为最新模型
         "models": [
+            # 🎯 按命令执行/文本生成准确度排序（优先推荐）
+            "MiniMax-M2.7-highspeed",      # 最新高速版，综合最佳
+            "MiniMax-M2.5",                # 稳定版，准确度高
+            "MiniMax-M2.5-highspeed",      # 高速版
+            "M2-her",                      # 特定优化版
+            "MiniMax-M2.1",                # 较新版本
+            "MiniMax-M2",                  # 基础版
+            # 旧版本（保留兼容）
             "MiniMax-Text-01",
             "MiniMax-M1",
             "MiniMax-M1-mini",
@@ -268,6 +277,7 @@ MODEL_PRESETS = {
         "models": [
             "gemini-2.0-flash",
             "gemini-2.0-flash-lite",
+            # 预览版本，可能不稳定
             "gemini-2.5-flash-preview-05-20",
             "gemini-2.5-pro-preview-06-05",
             "gemini-1.5-flash",
@@ -381,4 +391,3 @@ def make_openai_client(cfg: dict = None):
             api_key=cfg["api_key"],
             base_url=cfg["base_url"],
         )
-

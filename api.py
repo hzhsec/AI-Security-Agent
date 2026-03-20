@@ -233,8 +233,13 @@ async def stream_task(
                 if event is None:
                     break
                 yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
+        except asyncio.CancelledError:
+            # 客户端主动断开连接（关闭 SSE / 刷新页面），立即触发停止信号
+            logger.info(f"[API] 客户端断开连接，自动停止任务 [{task_id}]")
+            stop_event.set()
+            raise
         finally:
-            # 任务结束后清理 stop_event
+            # 无论何种结束方式，都清理 stop_event
             _stop_events.pop(task_id, None)
 
     return StreamingResponse(
