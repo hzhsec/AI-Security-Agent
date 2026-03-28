@@ -774,7 +774,8 @@ async def update_tool_knowledge(request: ToolKnowledgeUpdateRequest):
     rec = tool_knowledge.get(tool_name)
     if rec:
         if request.tool_path is not None:
-            rec["tool_path"] = request.tool_path
+            tool_knowledge.update_tool_path(tool_name, request.tool_path)
+            rec = tool_knowledge.get(tool_name)
         if request.summary is not None:
             rec["summary"] = request.summary
         if request.tool_path is not None or request.summary is not None:

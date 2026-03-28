@@ -2261,12 +2261,54 @@
     let finalAnswerRaw = '';
 
     function copyText(text) {
-      navigator.clipboard.writeText(text).then(() => toast('已复制到剪贴板')).catch(() => {
-        const ta = document.createElement('textarea');
-        ta.value = text; document.body.appendChild(ta);
-        ta.select(); document.execCommand('copy'); ta.remove();
-        toast('已复制到剪贴板');
-      });
+      const value = String(text || '');
+      if (!value) {
+        toast('没有可复制的内容', 'fail');
+        return;
+      }
+
+      if (navigator.clipboard && window.isSecureContext) {
+        navigator.clipboard.writeText(value).then(() => {
+          toast('已复制到剪贴板');
+        }).catch(() => {
+          fallbackCopyText(value);
+        });
+        return;
+      }
+
+      fallbackCopyText(value);
+    }
+
+    function fallbackCopyText(text) {
+      const ta = document.createElement('textarea');
+      ta.value = text;
+      ta.setAttribute('readonly', 'readonly');
+      ta.style.position = 'fixed';
+      ta.style.top = '-1000px';
+      ta.style.left = '-1000px';
+      ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.focus();
+      ta.select();
+      ta.setSelectionRange(0, ta.value.length);
+
+      try {
+        const ok = document.execCommand('copy');
+        ta.remove();
+        if (ok) {
+          toast('已复制到剪贴板');
+        } else {
+          promptCopyText(text);
+        }
+      } catch (e) {
+        ta.remove();
+        promptCopyText(text);
+      }
+    }
+
+    function promptCopyText(text) {
+      window.prompt('当前页面无法直接写入剪贴板，请手动复制下面内容：', text);
+      toast('请在弹窗中手动复制', 'fail', 4000);
     }
 
     function renderInlineMarkdown(text) {
@@ -2392,6 +2434,26 @@
           console.error('按钮没有找到 data-task 属性');
         }
       }
+
+      if (e.target && e.target.classList.contains('tag-del')) {
+        e.stopPropagation();
+        const idx = Number(e.target.getAttribute('data-idx'));
+        if (!Number.isNaN(idx)) deleteCustomTag(e, idx);
+        return;
+      }
+
+      const customTag = e.target && e.target.closest('.custom-tag');
+      if (customTag) {
+        const encodedTask = customTag.getAttribute('data-task');
+        if (encodedTask) {
+          try {
+            setTask(decodeURIComponent(escape(atob(encodedTask))));
+          } catch (err) {
+            console.error('自定义快捷指令解码失败:', err);
+            toast('快捷指令解析失败', 'fail');
+          }
+        }
+      }
     });
 
     // ═══════════════════════════════════════════════
@@ -2458,9 +2520,9 @@
         return;
       }
       container.innerHTML = list.map((item, idx) => `
-    <span class="tag" onclick="setTask(${JSON.stringify(item.task)})">
+    <span class="tag custom-tag" data-task="${btoa(unescape(encodeURIComponent(item.task)))}">
       ${esc(item.label || item.task.substring(0, 14) + (item.task.length > 14 ? '…' : ''))}
-      <button class="tag-del" onclick="deleteCustomTag(event,${idx})" title="删除此指令">✕</button>
+      <button class="tag-del" data-idx="${idx}" title="删除此指令">✕</button>
     </span>`).join('');
     }
 

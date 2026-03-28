@@ -384,6 +384,41 @@ class ToolKnowledge:
         self._save()
         logger.info(f"[ToolKnowledge] 更新用法: {tool_name}")
 
+    def update_tool_path(self, tool_name: str, new_path: str) -> bool:
+        """
+        更新工具路径，并同步替换已记录用法中的旧路径前缀。
+        仅替换完全匹配的旧路径文本，不改动命令参数说明。
+        """
+        with self._lock:
+            rec = self.knowledge.get(tool_name)
+            if not rec:
+                return False
+
+            old_path = (rec.get("tool_path") or "").strip()
+            new_path = (new_path or "").strip()
+            rec["tool_path"] = new_path
+
+            if old_path and new_path and old_path != new_path:
+                rec["usage_hints"] = [
+                    hint.replace(old_path, new_path) if isinstance(hint, str) else hint
+                    for hint in rec.get("usage_hints", [])
+                ]
+
+                for err in rec.get("errors", []):
+                    if isinstance(err.get("failed_command"), str):
+                        err["failed_command"] = err["failed_command"].replace(old_path, new_path)
+                    if isinstance(err.get("fixed_command"), str):
+                        err["fixed_command"] = err["fixed_command"].replace(old_path, new_path)
+
+                if isinstance(rec.get("help_summary"), str):
+                    rec["help_summary"] = rec["help_summary"].replace(old_path, new_path)
+                if isinstance(rec.get("summary"), str):
+                    rec["summary"] = rec["summary"].replace(old_path, new_path)
+
+            rec["updated_at"] = time.time()
+            self._save()
+            return True
+
     # ── 外部参考资料导入 ─────────────────────────────────────────────────────────
 
     def import_web_reference(self, tool_name: str, raw_content: str) -> dict:
