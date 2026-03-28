@@ -1823,8 +1823,8 @@
         </div>
 
         <div class="input-row">
-          <input type="text" id="taskInput" placeholder="例如：用 /root/check 目录的工具检查主机是否被入侵..."
-            onkeydown="if(event.key==='Enter')runTask()" />
+          <textarea id="taskInput" rows="3" placeholder="例如：用 /root/check 目录的工具检查主机是否被入侵...&#10;支持输入更长、更完整的任务指令。Ctrl+Enter 执行，Shift+Enter 换行"
+            onkeydown="handleTaskInputKey(event)" oninput="autoResize(this)"></textarea>
           <button class="btn" id="runBtn" onclick="runTask()">▶ 执行</button>
           <button class="btn btn-red" id="stopBtn" onclick="stopTask()" style="display:none" title="停止当前任务">⏹
             停止</button>
@@ -1878,8 +1878,8 @@
           </div>
           <div class="examples" id="customTags" style="margin-top:0"></div>
           <div class="add-tag-row">
-            <input class="add-tag-input" id="newTagInput" placeholder="输入指令内容，如：检查 Redis 配置安全性" maxlength="120"
-              onkeydown="if(event.key==='Enter')addCustomTag()" />
+            <textarea class="add-tag-input" id="newTagInput" rows="2" placeholder="输入指令内容，如：检查 Redis 配置安全性。这里支持更长的自定义快捷指令，Ctrl+Enter 添加"
+              onkeydown="handleCustomTagKey(event)" oninput="autoResize(this)"></textarea>
             <input class="add-tag-input" id="newTagLabel" placeholder="标签名（可选）" maxlength="12"
               style="max-width:120px" />
             <button class="add-tag-btn" onclick="addCustomTag()">+ 添加</button>
@@ -2558,8 +2558,24 @@
     // 任务执行
     // ═══════════════════════════════════════════════
     function setTask(text) {
-      document.getElementById('taskInput').value = text;
-      document.getElementById('taskInput').focus();
+      const input = document.getElementById('taskInput');
+      input.value = text;
+      input.focus();
+      autoResize(input);
+    }
+
+    function handleTaskInputKey(event) {
+      if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
+        event.preventDefault();
+        runTask();
+      }
+    }
+
+    function handleCustomTagKey(event) {
+      if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
+        event.preventDefault();
+        addCustomTag();
+      }
     }
 
     function setStatus(type, text) {
