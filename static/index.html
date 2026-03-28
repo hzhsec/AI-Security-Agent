@@ -670,16 +670,83 @@
       gap: 8px
     }
 
-    .final-card pre {
+    .final-answer {
       background: var(--bg);
       border-radius: 5px;
       padding: 12px;
       font-size: 13px;
-      white-space: pre-wrap;
-      word-break: break-all;
       line-height: 1.6;
       max-height: 400px;
-      overflow-y: auto
+      overflow-y: auto;
+      word-break: break-word
+    }
+
+    .final-answer h1,
+    .final-answer h2,
+    .final-answer h3,
+    .final-answer h4 {
+      margin: 14px 0 8px;
+      line-height: 1.4
+    }
+
+    .final-answer h1:first-child,
+    .final-answer h2:first-child,
+    .final-answer h3:first-child,
+    .final-answer h4:first-child,
+    .final-answer p:first-child,
+    .final-answer ul:first-child,
+    .final-answer ol:first-child,
+    .final-answer pre:first-child {
+      margin-top: 0
+    }
+
+    .final-answer p {
+      margin: 8px 0;
+      white-space: pre-wrap
+    }
+
+    .final-answer ul,
+    .final-answer ol {
+      margin: 8px 0 8px 20px
+    }
+
+    .final-answer li {
+      margin: 4px 0
+    }
+
+    .final-answer code {
+      background: rgba(88, 166, 255, .12);
+      color: #9ecbff;
+      border-radius: 4px;
+      padding: 1px 5px;
+      font-family: Consolas, Monaco, monospace;
+      font-size: 12px
+    }
+
+    .final-answer pre {
+      background: #0a0f14;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 12px;
+      overflow: auto;
+      margin: 10px 0;
+      white-space: pre-wrap
+    }
+
+    .final-answer pre code {
+      background: transparent;
+      color: inherit;
+      padding: 0
+    }
+
+    .final-answer strong {
+      color: #fff
+    }
+
+    .final-answer hr {
+      border: none;
+      border-top: 1px solid var(--border);
+      margin: 14px 0
     }
 
     .copy-btn {
@@ -1831,7 +1898,7 @@
           ✅ 任务完成
           <button class="copy-btn" onclick="copyFinal()">复制结果</button>
         </h3>
-        <pre id="finalAnswer"></pre>
+        <div id="finalAnswer" class="final-answer"></div>
       </div>
 
       <div id="timeline" style="display:none">
@@ -2191,6 +2258,8 @@
       el._t = setTimeout(() => el.classList.remove('show'), duration);
     }
 
+    let finalAnswerRaw = '';
+
     function copyText(text) {
       navigator.clipboard.writeText(text).then(() => toast('已复制到剪贴板')).catch(() => {
         const ta = document.createElement('textarea');
@@ -2198,6 +2267,110 @@
         ta.select(); document.execCommand('copy'); ta.remove();
         toast('已复制到剪贴板');
       });
+    }
+
+    function renderInlineMarkdown(text) {
+      return esc(text)
+        .replace(/`([^`\n]+)`/g, '<code>$1</code>')
+        .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+        .replace(/__([^_]+)__/g, '<strong>$1</strong>');
+    }
+
+    function renderMarkdown(text) {
+      const source = String(text || '').replace(/\r\n/g, '\n');
+      if (!source.trim()) return '<p>任务已完成</p>';
+
+      const lines = source.split('\n');
+      const html = [];
+      let inCodeBlock = false;
+      let codeLines = [];
+      let listType = null;
+
+      function closeList() {
+        if (listType) {
+          html.push(listType === 'ol' ? '</ol>' : '</ul>');
+          listType = null;
+        }
+      }
+
+      function closeCodeBlock() {
+        if (inCodeBlock) {
+          html.push(`<pre><code>${esc(codeLines.join('\n'))}</code></pre>`);
+          inCodeBlock = false;
+          codeLines = [];
+        }
+      }
+
+      for (const line of lines) {
+        if (line.trim().startsWith('```')) {
+          closeList();
+          if (inCodeBlock) {
+            closeCodeBlock();
+          } else {
+            inCodeBlock = true;
+            codeLines = [];
+          }
+          continue;
+        }
+
+        if (inCodeBlock) {
+          codeLines.push(line);
+          continue;
+        }
+
+        if (!line.trim()) {
+          closeList();
+          continue;
+        }
+
+        const heading = line.match(/^(#{1,4})\s+(.*)$/);
+        if (heading) {
+          closeList();
+          const level = heading[1].length;
+          html.push(`<h${level}>${renderInlineMarkdown(heading[2].trim())}</h${level}>`);
+          continue;
+        }
+
+        if (/^\s*---+\s*$/.test(line) || /^\s*\*\*\*+\s*$/.test(line)) {
+          closeList();
+          html.push('<hr>');
+          continue;
+        }
+
+        const ordered = line.match(/^\s*\d+\.\s+(.*)$/);
+        if (ordered) {
+          if (listType !== 'ol') {
+            closeList();
+            html.push('<ol>');
+            listType = 'ol';
+          }
+          html.push(`<li>${renderInlineMarkdown(ordered[1].trim())}</li>`);
+          continue;
+        }
+
+        const unordered = line.match(/^\s*[-*]\s+(.*)$/);
+        if (unordered) {
+          if (listType !== 'ul') {
+            closeList();
+            html.push('<ul>');
+            listType = 'ul';
+          }
+          html.push(`<li>${renderInlineMarkdown(unordered[1].trim())}</li>`);
+          continue;
+        }
+
+        closeList();
+        html.push(`<p>${renderInlineMarkdown(line)}</p>`);
+      }
+
+      closeList();
+      closeCodeBlock();
+      return html.join('');
+    }
+
+    function setFinalAnswer(text) {
+      finalAnswerRaw = String(text || '');
+      document.getElementById('finalAnswer').innerHTML = renderMarkdown(finalAnswerRaw);
     }
 
     // ═══════════════════════════════════════════════
@@ -2409,7 +2582,7 @@
         document.getElementById('finalCard').querySelector('h3').innerHTML =
           '⏹ 任务已停止 <button class="copy-btn" onclick="copyFinal()">复制结果</button>';
         document.getElementById('finalCard').style.borderColor = 'var(--yellow)';
-        document.getElementById('finalAnswer').textContent = `任务已被手动停止（共完成 ${stepCount} 步）`;
+        setFinalAnswer(`任务已被手动停止（共完成 ${stepCount} 步）`);
         setStatus('error', `⏹ 已停止，共 ${stepCount} 步`);
         resetTaskBtns();
         currentEventSource && currentEventSource.close();
@@ -2419,7 +2592,7 @@
         document.getElementById('finalCard').querySelector('h3').innerHTML =
           '✅ 任务完成 <button class="copy-btn" onclick="copyFinal()">复制结果</button>';
         document.getElementById('finalCard').style.borderColor = '';
-        document.getElementById('finalAnswer').textContent = data.final_answer || '任务已完成';
+        setFinalAnswer(data.final_answer || '任务已完成');
         setStatus('done', `✅ 完成，共 ${stepCount} 步`);
         resetTaskBtns();
         currentEventSource.close();
@@ -2464,7 +2637,7 @@
     }
 
     function copyFinal() {
-      copyText(document.getElementById('finalAnswer').textContent);
+      copyText(finalAnswerRaw || document.getElementById('finalAnswer').textContent);
     }
 
     function openChatAssist() {
