@@ -19,6 +19,50 @@ from typing import Dict, List, Optional, Generator
 logger = logging.getLogger(__name__)
 
 KNOWLEDGE_FILE = "tool_knowledge.json"
+BENIGN_WHITELIST_FILE = "benign_whitelist.json"
+
+# 内置良性上下文，避免 AI 在巡检时把本项目自身进程误报为恶意行为。
+BUILTIN_BENIGN_HINTS = {
+    "linux": [
+        {
+            "name": "AI-Security-Agent 服务进程",
+            "processes": [
+                "python api.py",
+                "python3 api.py",
+                "uvicorn api:app",
+            ],
+            "note": (
+                "如果进程启动路径属于当前项目目录，且用途是提供 Web/API/SSE 服务，"
+                "则默认视为本项目自身服务进程，不应仅因 Python 常驻、HTTP 外联或长连接就判定为挖矿或木马。"
+            ),
+        },
+        {
+            "name": "模型调用正常外联",
+            "processes": [
+                "python api.py",
+                "python3 api.py",
+            ],
+            "note": (
+                "本项目调用 DeepSeek、OpenAI 等模型接口时，会出现到模型平台的正常 HTTPS 外联。"
+                "仅凭存在外联连接、长连接、SSE 推送、API 请求，不能直接判定为矿池通信。"
+            ),
+        },
+    ],
+    "windows": [
+        {
+            "name": "AI-Security-Agent 服务进程",
+            "processes": [
+                "python api.py",
+                "python.exe api.py",
+                "uvicorn api:app",
+            ],
+            "note": (
+                "如果进程位于当前项目目录，负责 Web/API 服务，则默认视为本项目自身进程，"
+                "不要仅因 Python 进程常驻或访问模型接口就误判。"
+            ),
+        },
+    ],
+}
 
 
 def clean_web_content(raw_text: str) -> str:
@@ -207,7 +251,14 @@ class ToolKnowledge:
         # 正在进行中的自学任务 {tool_name: LearnTask}
         self._learn_tasks: Dict[str, LearnTask] = {}
         self._lock = threading.RLock()
+        self.benign_whitelist = {
+            "processes": [],
+            "paths": [],
+            "network_note": "",
+            "updated_at": 0,
+        }
         self._load()
+        self._load_benign_whitelist()
 
     # ── 基础 CRUD ──────────────────────────────────────────────────────────────
 
@@ -235,6 +286,63 @@ class ToolKnowledge:
                 os.replace(temp_file, KNOWLEDGE_FILE)
         except Exception as e:
             logger.error(f"[ToolKnowledge] 保存失败: {e}")
+
+    def _load_benign_whitelist(self):
+        try:
+            with open(BENIGN_WHITELIST_FILE, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            with self._lock:
+                self.benign_whitelist = {
+                    "processes": data.get("processes", []),
+                    "paths": data.get("paths", []),
+                    "network_note": data.get("network_note", ""),
+                    "updated_at": data.get("updated_at", 0),
+                }
+        except FileNotFoundError:
+            pass
+        except Exception as e:
+            logger.warning(f"[ToolKnowledge] 加载良性白名单失败: {e}")
+
+    def _save_benign_whitelist(self):
+        try:
+            with self._lock:
+                temp_file = f"{BENIGN_WHITELIST_FILE}.tmp"
+                with open(temp_file, "w", encoding="utf-8") as f:
+                    json.dump(self.benign_whitelist, f, ensure_ascii=False, indent=2)
+                os.replace(temp_file, BENIGN_WHITELIST_FILE)
+        except Exception as e:
+            logger.error(f"[ToolKnowledge] 保存良性白名单失败: {e}")
+
+    def get_benign_whitelist(self) -> dict:
+        with self._lock:
+            return {
+                "processes": list(self.benign_whitelist.get("processes", [])),
+                "paths": list(self.benign_whitelist.get("paths", [])),
+                "network_note": self.benign_whitelist.get("network_note", ""),
+                "updated_at": self.benign_whitelist.get("updated_at", 0),
+            }
+
+    def update_benign_whitelist(self, processes: List[str], paths: List[str], network_note: str = "") -> dict:
+        def _normalize_lines(items):
+            result = []
+            seen = set()
+            for item in items or []:
+                text = str(item or "").strip()
+                if not text or text in seen:
+                    continue
+                seen.add(text)
+                result.append(text)
+            return result[:50]
+
+        with self._lock:
+            self.benign_whitelist = {
+                "processes": _normalize_lines(processes),
+                "paths": _normalize_lines(paths),
+                "network_note": (network_note or "").strip()[:2000],
+                "updated_at": time.time(),
+            }
+            self._save_benign_whitelist()
+            return self.get_benign_whitelist()
 
     def get(self, tool_name: str) -> Optional[dict]:
         with self._lock:
@@ -861,6 +969,52 @@ class ToolKnowledge:
                         lines.append(f"    错误: {err['error_output'][:150]}")
                     if err.get("fixed_command"):
                         lines.append(f"  ✓ 正确: {err['fixed_command']}")
+        lines.append("")
+        return "\n".join(lines)
+
+    def build_builtin_benign_hint(self, os_type: str = "linux") -> str:
+        """构建内置良性实体提示，减少对本项目自身进程/外联的误报。"""
+        hints = BUILTIN_BENIGN_HINTS.get((os_type or "linux").lower(), [])
+        if not hints:
+            return ""
+
+        lines = ["\n## 【内置良性白名单提示】（用于减少误报）"]
+        for item in hints:
+            lines.append(f"\n### {item['name']}")
+            if item.get("processes"):
+                lines.append("已知良性进程/命令特征：")
+                for proc in item["processes"]:
+                    lines.append(f"  - {proc}")
+            if item.get("note"):
+                lines.append(f"判定提示：{item['note']}")
+
+        lines.append(
+            "只有在同时出现异常落地路径、伪装文件名、异常父进程、恶意持久化、异常下载行为、矿池特征域名/IP 等额外证据时，才允许继续升级为可疑项。"
+        )
+        lines.append("")
+        return "\n".join(lines)
+
+    def build_user_benign_hint(self, os_type: str = "linux") -> str:
+        """构建用户自定义良性白名单提示。"""
+        cfg = self.get_benign_whitelist()
+        if not cfg["processes"] and not cfg["paths"] and not cfg["network_note"]:
+            return ""
+
+        lines = ["\n## 【用户自定义良性白名单】（优先减少对本机自有服务的误报）"]
+        if cfg["processes"]:
+            lines.append("已确认的良性进程命令特征：")
+            for item in cfg["processes"]:
+                lines.append(f"  - {item}")
+        if cfg["paths"]:
+            lines.append("已确认的良性路径关键字：")
+            for item in cfg["paths"]:
+                lines.append(f"  - {item}")
+        if cfg["network_note"]:
+            lines.append(f"正常外联说明：{cfg['network_note']}")
+
+        lines.append(
+            "如果进程命令、工作目录、落地路径与以上白名单明显匹配，则优先视为用户自有服务或正常运维组件，不要仅凭 CPU 占用、常驻、外联就直接判定为恶意。"
+        )
         lines.append("")
         return "\n".join(lines)
 

@@ -429,9 +429,17 @@ class LinuxAgent:
         base_prompt = get_system_prompt(os_type)
         known_tools = tool_knowledge.extract_tool_names_from_task(task)
         knowledge_hint = tool_knowledge.build_context_hint(known_tools if known_tools else None)
+        benign_hint = tool_knowledge.build_builtin_benign_hint(os_type)
+        user_benign_hint = tool_knowledge.build_user_benign_hint(os_type)
+
+        parts = [base_prompt]
+        if benign_hint:
+            parts.append(benign_hint)
+        if user_benign_hint:
+            parts.append(user_benign_hint)
         if knowledge_hint:
-            return base_prompt + knowledge_hint
-        return base_prompt
+            parts.append(knowledge_hint)
+        return "".join(parts)
 
     def _handle_tool_learning(self, action: Dict[str, Any], tool_result, command_display: str):
         """

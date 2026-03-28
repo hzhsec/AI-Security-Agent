@@ -124,6 +124,12 @@ class WebReferenceRequest(BaseModel):
     raw_content: str        # 从网页粘贴的原始内容
 
 
+class BenignWhitelistRequest(BaseModel):
+    processes: Optional[list] = []
+    paths: Optional[list] = []
+    network_note: Optional[str] = ""
+
+
 # ─── 路由 ─────────────────────────────────────────────────────────────────────
 
 @app.get("/", response_class=HTMLResponse)
@@ -696,6 +702,23 @@ async def get_tool_knowledge():
     """获取全部工具知识记录"""
     items = tool_knowledge.list_all()
     return {"ok": True, "total": len(items), "items": items}
+
+
+@app.get("/benign-whitelist")
+async def get_benign_whitelist():
+    """获取用户自定义良性白名单"""
+    return {"ok": True, **tool_knowledge.get_benign_whitelist()}
+
+
+@app.post("/benign-whitelist")
+async def set_benign_whitelist(request: BenignWhitelistRequest):
+    """保存用户自定义良性白名单"""
+    data = tool_knowledge.update_benign_whitelist(
+        processes=request.processes or [],
+        paths=request.paths or [],
+        network_note=request.network_note or "",
+    )
+    return {"ok": True, "message": "良性白名单已保存", **data}
 
 
 # 导入/导出接口（必须在 {tool_name} 之前定义，避免路由冲突）

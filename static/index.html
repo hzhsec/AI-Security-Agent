@@ -2036,6 +2036,30 @@
         💡 <b>使用方式：</b>先在网上搜索工具用法 → 粘贴到「让AI学习」面板 → AI验证命令有效性并学会怎么用 → 自动存入知识库
       </div>
 
+      <div class="card" style="margin-bottom:16px">
+        <div class="card-title">良性白名单</div>
+        <div style="font-size:12px;color:var(--muted);margin-bottom:12px;line-height:1.6">
+          把你自己的服务进程、项目路径和正常外联说明写在这里，AI 巡检时会自动参考，减少把自家进程误报成挖矿或木马。
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
+          <div class="form-row">
+            <label class="field-label">良性进程命令特征（每行一个）</label>
+            <textarea id="benignProcesses" rows="4" placeholder="如：&#10;python api.py&#10;python3 api.py&#10;uvicorn api:app"></textarea>
+          </div>
+          <div class="form-row">
+            <label class="field-label">良性路径关键字（每行一个）</label>
+            <textarea id="benignPaths" rows="4" placeholder="如：&#10;/root/AI-Security-Agent&#10;/opt/my-safe-service"></textarea>
+          </div>
+        </div>
+        <div class="form-row">
+          <label class="field-label">正常外联说明</label>
+          <textarea id="benignNetworkNote" rows="3" placeholder="如：python api.py 会正常访问 DeepSeek/OpenAI 模型接口，存在 HTTPS 外联和 SSE 长连接是正常行为。"></textarea>
+        </div>
+        <div style="display:flex;justify-content:flex-end">
+          <button class="btn btn-sm" onclick="saveBenignWhitelist()">保存白名单</button>
+        </div>
+      </div>
+
       <div class="knowledge-grid">
         <!-- 左：工具列表 -->
         <div class="knowledge-list">
@@ -2237,6 +2261,7 @@
     // 知识库状态
     let selectedToolName = null;
     let knowledgeData = [];
+    let benignWhitelistData = null;
 
     // 自定义快捷指令（按 OS 分组）
     // 结构：{ linux: [{label, task}, ...], windows: [...] }
@@ -2465,7 +2490,7 @@
       document.getElementById(`tab-${name}`).classList.add('active');
       btn.classList.add('active');
       if (name === 'history') { loadHistory(); loadMemStats(); }
-      if (name === 'knowledge') { loadKnowledge(); }
+      if (name === 'knowledge') { loadKnowledge(); loadBenignWhitelist(); }
     }
 
     // ═══════════════════════════════════════════════
@@ -3003,6 +3028,51 @@
         document.getElementById('knowledgeCount').textContent = `${d.total} 个`;
       } catch (e) {
         document.getElementById('knowledgeItems').innerHTML = '<div class="empty" style="color:var(--red)">加载失败</div>';
+      }
+    }
+
+    function splitLines(text) {
+      return String(text || '')
+        .split(/\r?\n/)
+        .map(s => s.trim())
+        .filter(Boolean);
+    }
+
+    async function loadBenignWhitelist() {
+      try {
+        const r = await fetch('/benign-whitelist');
+        const d = await r.json();
+        benignWhitelistData = d;
+        document.getElementById('benignProcesses').value = (d.processes || []).join('\n');
+        document.getElementById('benignPaths').value = (d.paths || []).join('\n');
+        document.getElementById('benignNetworkNote').value = d.network_note || '';
+      } catch (e) {
+        toast('良性白名单加载失败', 'fail');
+      }
+    }
+
+    async function saveBenignWhitelist() {
+      const body = {
+        processes: splitLines(document.getElementById('benignProcesses').value),
+        paths: splitLines(document.getElementById('benignPaths').value),
+        network_note: document.getElementById('benignNetworkNote').value.trim(),
+      };
+
+      try {
+        const r = await fetch('/benign-whitelist', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        });
+        const d = await r.json();
+        if (!r.ok) {
+          toast(d.detail || '保存失败', 'fail');
+          return;
+        }
+        benignWhitelistData = d;
+        toast(d.message || '良性白名单已保存');
+      } catch (e) {
+        toast('保存失败: ' + e.message, 'fail');
       }
     }
 
