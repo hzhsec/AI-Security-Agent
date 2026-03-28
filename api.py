@@ -41,7 +41,7 @@ logger = logging.getLogger(__name__)
 app = FastAPI(
     title="AI Agent运维管理",
     description="通过 AI 自动执行任务的智能代理系统",
-    version="1.4.0",
+    version="1.5.0",
 )
 
 app.add_middleware(
@@ -310,7 +310,7 @@ async def health_check():
     return {
         "status": "ok",
         "service": "AI Linux Agent",
-        "version": "1.4.0",
+        "version": "1.5.0",
         "model": f"{cfg.get('provider', '?')} / {cfg.get('model', '?')}",
     }
 
@@ -942,7 +942,7 @@ async def get_learn_status(tool_name: str):
 if __name__ == "__main__":
     print(f"""
 ╔══════════════════════════════════════════╗
-║       AI Linux Agent  v1.4.0             ║
+║       AI Linux Agent  v1.5.0             ║
 ║  http://127.0.0.1:{API_PORT}                    ║
 ║  接口文档: http://127.0.0.1:{API_PORT}/docs    ║
 ╚══════════════════════════════════════════╝

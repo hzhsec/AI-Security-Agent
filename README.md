@@ -24,6 +24,8 @@
 - **多模型支持** — 支持 15+ 主流提供商，UI 内一键切换，支持自定义 API 端点和代理
 - **工具知识库导入导出** — 支持将学习到的工具用法导出备份，或导入已有知识库，避免重复学习
 - **工具信息编辑** — 支持修改工具路径、简介等信息，适应工具迁移场景
+- **良性白名单** — 支持记录自有服务进程、路径和正常外联说明，减少把 `python api.py` 这类项目自身进程误报为矿池或木马
+- **输入与报告体验优化** — 支持更长任务输入、自定义快捷指令长文本，以及最终报告 Markdown 展示与复制兜底
 
 ------
 
@@ -235,6 +237,7 @@ AI-Security-Agent/
 ├── security.py         # 安全校验（黑名单命令拦截）
 ├── config.py           # 全局配置（模型预设、超时、黑名单、端口等）
 ├── model_config.json   # 运行时模型配置（自动生成）
+├── benign_whitelist.json # 用户自定义良性白名单（自动生成）
 ├── task_history.json   # 历史任务持久化（自动生成）
 ├── tool_knowledge.json # 工具知识库持久化（自动生成）
 ├── agent.log           # 运行日志（自动生成）
@@ -341,6 +344,8 @@ GET /task/stream?task=检查系统是否被入侵&os_type=linux
 | `DELETE` | `/tool-knowledge/reference/{tool_name}`    | 清除工具的参考资料               |
 | `POST`   | `/tool-knowledge/learn`                    | 触发 AI 自学指定工具（SSE 流式） |
 | `GET`    | `/tool-knowledge/learn/{tool_name}/status` | 查询工具自学状态                 |
+| `GET`    | `/benign-whitelist`                        | 获取用户自定义良性白名单         |
+| `POST`   | `/benign-whitelist`                        | 保存用户自定义良性白名单         |
 | `GET`    | `/model/presets`                           | 获取所有模型提供商预设           |
 | `GET`    | `/model/config`                            | 获取当前模型配置（脱敏）         |
 | `POST`   | `/model/config`                            | 保存模型配置（支持 proxy）       |
@@ -426,6 +431,14 @@ JSON 中填写 learn_tool + learn_usage
 ------
 
 ## 更新日志
+
+### v1.5.0
+
+- 新增用户自定义良性白名单，支持记录自有进程、路径和正常外联说明，减少对项目自身服务的误报
+- 优化任务输入区，支持更长的任务描述与更方便的快捷指令编辑
+- 优化最终报告展示，支持 Markdown 渲染和复制兜底
+- 修复流式任务异常时前端可能一直等待的问题
+- 修复历史/知识库并发写入时可能导致的数据丢失风险
 
 ### v1.4.0
 
