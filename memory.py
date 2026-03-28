@@ -4,6 +4,8 @@
 import json
 import time
 import logging
+import os
+import threading
 from typing import List, Dict, Any, Optional
 from dataclasses import dataclass, field, asdict
 
@@ -73,25 +75,29 @@ class Memory:
     def __init__(self, persist_file: str = "task_history.json"):
         self.persist_file = persist_file
         self.sessions: Dict[str, TaskSession] = {}
+        self._lock = threading.RLock()
         self._load_history()
 
     # ── 会话管理 ──────────────────────────────────────────────────────────────
 
     def new_session(self, task_id: str, task: str) -> TaskSession:
         session = TaskSession(task_id=task_id, task=task)
-        self.sessions[task_id] = session
+        with self._lock:
+            self.sessions[task_id] = session
         logger.info(f"新建任务会话: {task_id} | 任务: {task}")
         return session
 
     def get_session(self, task_id: str) -> Optional[TaskSession]:
-        return self.sessions.get(task_id)
+        with self._lock:
+            return self.sessions.get(task_id)
 
     def finish_session(self, task_id: str, status: str, final_answer: str = ""):
-        session = self.sessions.get(task_id)
-        if session:
-            session.finish(status, final_answer)
-            self._save_history()
-            logger.info(f"任务完成: {task_id} | 状态: {status} | 耗时: {session.duration()}s")
+        with self._lock:
+            session = self.sessions.get(task_id)
+            if session:
+                session.finish(status, final_answer)
+                self._save_history()
+                logger.info(f"任务完成: {task_id} | 状态: {status} | 耗时: {session.duration()}s")
 
     # ── 步骤记录 ──────────────────────────────────────────────────────────────
 
@@ -113,9 +119,10 @@ class Memory:
             result=result,
             success=success,
         )
-        session = self.sessions.get(task_id)
-        if session:
-            session.add_step(step)
+        with self._lock:
+            session = self.sessions.get(task_id)
+            if session:
+                session.add_step(step)
         return step
 
     # ── AI 消息历史构建 ───────────────────────────────────────────────────────
@@ -125,7 +132,8 @@ class Memory:
         构建发送给 AI 的完整 messages 列表。
         包含 system prompt + 当前任务 + 历史步骤上下文。
         """
-        session = self.sessions.get(task_id)
+        with self._lock:
+            session = self.sessions.get(task_id)
         messages = [{"role": "system", "content": system_prompt}]
 
         if session:
@@ -158,9 +166,12 @@ class Memory:
 
     def _save_history(self):
         try:
-            data = {tid: s.to_dict() for tid, s in self.sessions.items()}
-            with open(self.persist_file, "w", encoding="utf-8") as f:
-                json.dump(data, f, ensure_ascii=False, indent=2)
+            with self._lock:
+                data = {tid: s.to_dict() for tid, s in self.sessions.items()}
+                temp_file = f"{self.persist_file}.tmp"
+                with open(temp_file, "w", encoding="utf-8") as f:
+                    json.dump(data, f, ensure_ascii=False, indent=2)
+                os.replace(temp_file, self.persist_file)
         except Exception as e:
             logger.error(f"保存历史失败: {e}")
 
@@ -174,11 +185,12 @@ class Memory:
                     f.write("{}")
                 return
             data = json.loads(content)
-            for tid, d in data.items():
-                steps = [StepRecord(**s) for s in d.pop("steps", [])]
-                session = TaskSession(**d)
-                session.steps = steps
-                self.sessions[tid] = session
+            with self._lock:
+                for tid, d in data.items():
+                    steps = [StepRecord(**s) for s in d.pop("steps", [])]
+                    session = TaskSession(**d)
+                    session.steps = steps
+                    self.sessions[tid] = session
             logger.info(f"加载历史会话 {len(self.sessions)} 条")
         except FileNotFoundError:
             pass
@@ -187,11 +199,12 @@ class Memory:
 
     def list_sessions(self, limit: int = 20) -> List[Dict]:
         """返回最近的会话列表摘要"""
-        sessions = sorted(
-            self.sessions.values(),
-            key=lambda s: s.start_time,
-            reverse=True
-        )[:limit]
+        with self._lock:
+            sessions = sorted(
+                self.sessions.values(),
+                key=lambda s: s.start_time,
+                reverse=True
+            )[:limit]
         return [
             {
                 "task_id": s.task_id,
@@ -208,27 +221,29 @@ class Memory:
 
     def clear_all(self) -> int:
         """清除全部会话记忆（内存 + 持久化文件），返回清除条数"""
-        count = len(self.sessions)
-        self.sessions.clear()
-        self._save_history()   # 写入空文件
+        with self._lock:
+            count = len(self.sessions)
+            self.sessions.clear()
+            self._save_history()   # 写入空文件
         logger.info(f"[Memory] 已清除全部记忆，共 {count} 条")
         return count
 
     def clear_session(self, task_id: str) -> bool:
         """清除指定会话，返回是否存在并删除成功"""
-        if task_id in self.sessions:
-            del self.sessions[task_id]
-            self._save_history()
-            logger.info(f"[Memory] 已删除会话: {task_id}")
-            return True
-        return False
+        with self._lock:
+            if task_id in self.sessions:
+                del self.sessions[task_id]
+                self._save_history()
+                logger.info(f"[Memory] 已删除会话: {task_id}")
+                return True
+            return False
 
     def stats(self) -> Dict:
         """返回记忆统计信息"""
-        import os
-        total = len(self.sessions)
-        completed = sum(1 for s in self.sessions.values() if s.status == "completed")
-        failed = sum(1 for s in self.sessions.values() if s.status in ("failed", "aborted"))
+        with self._lock:
+            total = len(self.sessions)
+            completed = sum(1 for s in self.sessions.values() if s.status == "completed")
+            failed = sum(1 for s in self.sessions.values() if s.status in ("failed", "aborted"))
         file_size = 0
         try:
             file_size = os.path.getsize(self.persist_file)

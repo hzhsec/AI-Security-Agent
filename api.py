@@ -223,9 +223,17 @@ async def stream_task(
         queue: asyncio.Queue = asyncio.Queue()
 
         def run_agent():
-            for event in agent.stream_run(task, task_id=task_id, os_type=os_type, stop_event=stop_event):
-                loop.call_soon_threadsafe(queue.put_nowait, event)
-            loop.call_soon_threadsafe(queue.put_nowait, None)  # 结束信号
+            try:
+                for event in agent.stream_run(task, task_id=task_id, os_type=os_type, stop_event=stop_event):
+                    loop.call_soon_threadsafe(queue.put_nowait, event)
+            except Exception as e:
+                logger.error(f"[API] 流式任务后台线程异常 [{task_id}]: {e}", exc_info=True)
+                loop.call_soon_threadsafe(queue.put_nowait, {
+                    "event": "error",
+                    "message": f"流式任务异常: {e}",
+                })
+            finally:
+                loop.call_soon_threadsafe(queue.put_nowait, None)  # 结束信号
 
         loop.run_in_executor(None, run_agent)
 

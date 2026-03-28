@@ -47,8 +47,21 @@ def tool_shell_batch(action: Dict[str, Any]) -> ToolResult:
     每条命令单独执行，结果合并后一次性返回给 AI。
     某条命令失败不会中断后续命令（除非设置 stop_on_error=true）。
     """
-    commands: List[str] = action.get("commands", [])
+    commands = action.get("commands", [])
     stop_on_error: bool = action.get("stop_on_error", False)
+
+    if isinstance(commands, str):
+        commands = [commands]
+    elif not isinstance(commands, list):
+        return ToolResult("[shell_batch] commands 字段必须是字符串列表", False, "shell_batch")
+
+    normalized_commands: List[str] = []
+    for cmd in commands:
+        if not isinstance(cmd, str):
+            return ToolResult("[shell_batch] commands 列表中的每一项都必须是字符串", False, "shell_batch")
+        normalized_commands.append(cmd)
+
+    commands = normalized_commands
 
     if not commands:
         return ToolResult("[shell_batch] commands 字段为空或不是列表", False, "shell_batch")

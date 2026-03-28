@@ -262,6 +262,8 @@ def parse_ai_response(raw: str) -> Dict[str, Any]:
                 opens["["] -= 1
 
         # 补全缺失的闭合符号
+        if in_string:
+            fixed += "\""
         while opens["["] > 0:
             fixed += "]"
             opens["["] -= 1
@@ -327,18 +329,62 @@ class LinuxAgent:
             return _do_call()
 
         # 有停止信号：在线程池中执行，每 0.5s 检查一次 stop_event
-        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
-            future = executor.submit(_do_call)
+        executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+        future = executor.submit(_do_call)
+        try:
             while True:
                 try:
-                    return future.result(timeout=0.5)
+                    result = future.result(timeout=0.5)
+                    executor.shutdown(wait=False, cancel_futures=False)
+                    return result
                 except concurrent.futures.TimeoutError:
                     if stop_event.is_set():
                         future.cancel()
+                        executor.shutdown(wait=False, cancel_futures=True)
                         logger.info("[AI] 检测到停止信号，中断 AI API 等待")
                         raise StopIteration("用户停止任务")
-                except Exception as e:
+                except Exception:
+                    executor.shutdown(wait=False, cancel_futures=False)
                     raise
+        except Exception:
+            executor.shutdown(wait=False, cancel_futures=True)
+            raise
+
+    def _normalize_shell_batch_action(self, action: Dict[str, Any]) -> None:
+        """
+        兼容 AI 常见格式错误：
+        1. tool=shell_batch 但误填 command
+        2. commands 错误地返回为单个字符串
+        """
+        if action.get("tool", "shell") != "shell_batch":
+            return
+
+        commands = action.get("commands")
+        command = action.get("command")
+
+        if not commands and isinstance(command, str):
+            single_cmd = command.strip()
+            if single_cmd:
+                # 保留整条命令，交给 shell 自己处理 && / ; / | 等语法，避免拆坏引号和控制符。
+                action["commands"] = [single_cmd]
+                logger.info(f"[ActionFix] 将 shell_batch 的单条 command 转为 commands: {single_cmd}")
+            return
+
+        if isinstance(commands, str):
+            single_cmd = commands.strip()
+            action["commands"] = [single_cmd] if single_cmd else []
+            logger.info(f"[ActionFix] 将字符串 commands 转为列表: {action['commands']}")
+
+    def _get_action_display(self, action: Dict[str, Any]) -> str:
+        """生成步骤展示文本，避免 shell_batch 的 commands 在历史中丢失。"""
+        tool = action.get("tool", "")
+        if tool == "shell_batch":
+            commands = action.get("commands") or []
+            if isinstance(commands, list):
+                clean_commands = [str(cmd).strip() for cmd in commands if str(cmd).strip()]
+                if clean_commands:
+                    return " ; ".join(clean_commands)
+        return action.get("command") or action.get("path") or action.get("url") or action.get("summary", "")
 
     def _compress_messages(self, messages: List[Dict], keep_recent: int = 10) -> List[Dict]:
         """
@@ -453,35 +499,11 @@ class LinuxAgent:
 
             action = parse_ai_response(raw_response)
             
-            # 兼容处理：AI 常见错误 - 用 command 而非 commands
             tool = action.get("tool", "shell")
-            if tool == "shell_batch":
-                # 如果 commands 为空，尝试从 command 转换
-                if not action.get("commands") and action.get("command"):
-                    # 把单条命令转成 commands 数组
-                    single_cmd = action.get("command", "").strip()
-                    if single_cmd:
-                        # 尝试按 && 或 ; 分割
-                        import shlex
-                        try:
-                            cmds = []
-                            for part in shlex.split(single_cmd, posix=False):
-                                if "&&" in part:
-                                    cmds.extend([c.strip() for c in part.split("&&") if c.strip()])
-                                elif ";" in part:
-                                    cmds.extend([c.strip() for c in part.split(";") if c.strip()])
-                                else:
-                                    cmds.append(part)
-                            if cmds:
-                                action["commands"] = cmds
-                                logger.info(f"[ActionFix] 将 command 转换为 commands: {cmds}")
-                        except Exception:
-                            action["commands"] = [single_cmd]
-                            logger.info(f"[ActionFix] 将单条 command 转为 commands: {single_cmd}")
-            
+            self._normalize_shell_batch_action(action)
             thought = action.get("thought", "")
             should_continue = action.get("continue", True)
-            command_display = action.get("command") or action.get("path") or action.get("url") or action.get("summary", "")
+            command_display = self._get_action_display(action)
 
             logger.info(f"[AI thought] {thought}")
             logger.info(f"[AI action] tool={tool}, commands={action.get('commands')}, command={command_display}")
@@ -565,30 +587,11 @@ class LinuxAgent:
 
             action = parse_ai_response(raw_response)
             
-            # 兼容处理：AI 常见错误 - 用 command 而非 commands
             tool = action.get("tool", "shell")
-            if tool == "shell_batch":
-                if not action.get("commands") and action.get("command"):
-                    single_cmd = action.get("command", "").strip()
-                    if single_cmd:
-                        import shlex
-                        try:
-                            cmds = []
-                            for part in shlex.split(single_cmd, posix=False):
-                                if "&&" in part:
-                                    cmds.extend([c.strip() for c in part.split("&&") if c.strip()])
-                                elif ";" in part:
-                                    cmds.extend([c.strip() for c in part.split(";") if c.strip()])
-                                else:
-                                    cmds.append(part)
-                            if cmds:
-                                action["commands"] = cmds
-                        except Exception:
-                            action["commands"] = [single_cmd]
-            
+            self._normalize_shell_batch_action(action)
             thought = action.get("thought", "")
             should_continue = action.get("continue", True)
-            command_display = action.get("command") or action.get("path") or action.get("url") or action.get("summary", "")
+            command_display = self._get_action_display(action)
 
             # ── 停止检查（AI 解析后、工具执行前）─────────────────
             if stop_event is not None and stop_event.is_set():

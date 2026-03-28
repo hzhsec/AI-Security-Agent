@@ -206,6 +206,7 @@ class ToolKnowledge:
         self.knowledge: Dict[str, dict] = {}
         # 正在进行中的自学任务 {tool_name: LearnTask}
         self._learn_tasks: Dict[str, LearnTask] = {}
+        self._lock = threading.RLock()
         self._load()
 
     # ── 基础 CRUD ──────────────────────────────────────────────────────────────
@@ -213,36 +214,46 @@ class ToolKnowledge:
     def _load(self):
         try:
             with open(KNOWLEDGE_FILE, "r", encoding="utf-8") as f:
-                self.knowledge = json.load(f)
+                data = json.load(f)
+            with self._lock:
+                self.knowledge = data
             logger.info(f"[ToolKnowledge] 已加载 {len(self.knowledge)} 个工具知识")
         except FileNotFoundError:
-            self.knowledge = {}
+            with self._lock:
+                self.knowledge = {}
         except Exception as e:
             logger.warning(f"[ToolKnowledge] 加载失败: {e}")
-            self.knowledge = {}
+            with self._lock:
+                self.knowledge = {}
 
     def _save(self):
         try:
-            with open(KNOWLEDGE_FILE, "w", encoding="utf-8") as f:
-                json.dump(self.knowledge, f, ensure_ascii=False, indent=2)
+            with self._lock:
+                temp_file = f"{KNOWLEDGE_FILE}.tmp"
+                with open(temp_file, "w", encoding="utf-8") as f:
+                    json.dump(self.knowledge, f, ensure_ascii=False, indent=2)
+                os.replace(temp_file, KNOWLEDGE_FILE)
         except Exception as e:
             logger.error(f"[ToolKnowledge] 保存失败: {e}")
 
     def get(self, tool_name: str) -> Optional[dict]:
-        return self.knowledge.get(tool_name)
+        with self._lock:
+            return self.knowledge.get(tool_name)
 
     def list_all(self) -> List[dict]:
         result = []
-        for name, rec in self.knowledge.items():
-            result.append({"tool": name, **rec})
+        with self._lock:
+            for name, rec in self.knowledge.items():
+                result.append({"tool": name, **rec})
         return result
 
     def delete(self, tool_name: str) -> bool:
-        if tool_name in self.knowledge:
-            del self.knowledge[tool_name]
-            self._save()
-            return True
-        return False
+        with self._lock:
+            if tool_name in self.knowledge:
+                del self.knowledge[tool_name]
+                self._save()
+                return True
+            return False
 
     # ── 导入/导出 ─────────────────────────────────────────────────────────────
 
