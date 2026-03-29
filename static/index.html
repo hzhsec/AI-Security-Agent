@@ -7,17 +7,17 @@
   <title>AI Linux Agent</title>
   <style>
     :root {
-      --bg: #0d1117;
+      --bg: #0f141a;
       --surface: #161b22;
-      --surface2: #1c2128;
-      --border: #30363d;
-      --accent: #58a6ff;
-      --green: #3fb950;
-      --red: #f85149;
-      --yellow: #e3b341;
-      --purple: #bc8cff;
+      --surface2: #1d232c;
+      --border: #2d3642;
+      --accent: #6ea8fe;
+      --green: #53b37c;
+      --red: #e57373;
+      --yellow: #d4b060;
+      --purple: #6ea8fe;
       --text: #e6edf3;
-      --muted: #8b949e;
+      --muted: #97a3b6;
       --radius: 8px;
     }
 
@@ -63,7 +63,7 @@
 
     .badge {
       background: var(--green);
-      color: #000;
+      color: #fff;
       font-size: 10px;
       font-weight: 800;
       padding: 2px 7px;
@@ -159,7 +159,7 @@
     /* ═══ 通用按钮 ═══ */
     .btn {
       background: var(--accent);
-      color: #000;
+      color: #fff;
       border: none;
       border-radius: var(--radius);
       padding: 9px 20px;
@@ -186,7 +186,7 @@
 
     .btn-green {
       background: var(--green);
-      color: #000
+      color: #fff
     }
 
     .btn-outline {
@@ -208,7 +208,7 @@
     }
 
     .btn-ghost:hover {
-      background: rgba(88, 166, 255, .1);
+      background: rgba(37, 99, 235, .08);
       opacity: 1
     }
 
@@ -671,7 +671,7 @@
     }
 
     .final-answer {
-      background: var(--bg);
+      background: var(--surface2);
       border-radius: 5px;
       padding: 12px;
       font-size: 13px;
@@ -1121,11 +1121,16 @@
     }
 
     /* ═══ 工具知识库 ═══ */
+    .knowledge-dashboard {
+      display: block
+    }
+
     .knowledge-grid {
       display: grid;
-      grid-template-columns: 280px 1fr;
-      gap: 18px;
-      min-height: 500px
+      grid-template-columns: 280px 280px minmax(0, 1fr);
+      gap: 14px;
+      min-height: 460px;
+      align-items: stretch
     }
 
     .knowledge-list {
@@ -1152,7 +1157,8 @@
 
     .knowledge-items {
       flex: 1;
-      overflow-y: auto
+      overflow-y: auto;
+      max-height: 412px
     }
 
     .knowledge-item {
@@ -1214,8 +1220,77 @@
       background: var(--surface);
       border: 1px solid var(--border);
       border-radius: var(--radius);
-      padding: 20px;
+      padding: 16px;
+      height: 460px;
+      max-height: 460px;
       overflow-y: auto
+    }
+
+    .mcp-grid {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      overflow-y: auto;
+      max-height: 412px
+    }
+
+    .mcp-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 14px
+    }
+
+    .mcp-name {
+      font-size: 14px;
+      font-weight: 700;
+      color: var(--text);
+      font-family: monospace
+    }
+
+    .mcp-meta {
+      margin-top: 6px;
+      font-size: 12px;
+      color: var(--muted);
+      line-height: 1.6
+    }
+
+    .mcp-cap-list {
+      margin-top: 10px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px
+    }
+
+    .mcp-cap-tag {
+      display: inline-flex;
+      align-items: center;
+      padding: 4px 8px;
+      border-radius: 999px;
+      background: rgba(110, 168, 254, .10);
+      border: 1px solid rgba(110, 168, 254, .20);
+      color: var(--accent);
+      font-size: 11px;
+      font-family: monospace
+    }
+
+    .mcp-actions {
+      margin-top: 12px;
+      display: flex;
+      justify-content: flex-end
+    }
+
+    @media (max-width: 980px) {
+      .knowledge-grid {
+        grid-template-columns: 1fr
+      }
+
+      .knowledge-detail,
+      .knowledge-items,
+      .mcp-grid {
+        height: auto;
+        max-height: none
+      }
     }
 
     .kd-section {
@@ -1798,10 +1873,10 @@
 
   <!-- 标签页 -->
   <div class="tabs">
-    <button class="tab-btn active" onclick="switchTab('exec',this)">▶ 任务执行</button>
-    <button class="tab-btn" onclick="switchTab('chat',this)">💬 AI 对话助手</button>
-    <button class="tab-btn" onclick="switchTab('knowledge',this)">🧠 工具知识库</button>
-    <button class="tab-btn" onclick="switchTab('history',this)">📋 执行历史</button>
+    <button class="tab-btn active" onclick="switchTab('exec',this)">任务执行</button>
+    <button class="tab-btn" onclick="switchTab('chat',this)">AI 对话助手</button>
+    <button class="tab-btn" onclick="switchTab('knowledge',this)">工具知识库</button>
+    <button class="tab-btn" onclick="switchTab('history',this)">执行历史</button>
   </div>
 
   <div class="container">
@@ -1825,10 +1900,10 @@
         <div class="input-row">
           <textarea id="taskInput" rows="3" placeholder="例如：用 /root/check 目录的工具检查主机是否被入侵...&#10;支持输入更长、更完整的任务指令。Ctrl+Enter 执行，Shift+Enter 换行"
             onkeydown="handleTaskInputKey(event)" oninput="autoResize(this)"></textarea>
-          <button class="btn" id="runBtn" onclick="runTask()">▶ 执行</button>
-          <button class="btn btn-red" id="stopBtn" onclick="stopTask()" style="display:none" title="停止当前任务">⏹
+          <button class="btn" id="runBtn" onclick="runTask()">执行</button>
+          <button class="btn btn-red" id="stopBtn" onclick="stopTask()" style="display:none" title="停止当前任务">
             停止</button>
-          <button class="btn btn-outline btn-sm" onclick="openChatAssist()" title="用 AI 帮你完善任务描述">💬 AI辅助</button>
+          <button class="btn btn-outline btn-sm" onclick="openChatAssist()" title="用 AI 帮你完善任务描述">AI辅助</button>
         </div>
 
         <!-- 系统示例快捷指令（随 OS 切换） -->
@@ -1970,7 +2045,7 @@
             • 看到「✅ 推荐任务指令」时，点击「发送执行」自动填入
           </div>
 
-          <button class="btn btn-outline btn-sm" style="width:100%" onclick="clearChat()">🗑 清空对话</button>
+          <button class="btn btn-outline btn-sm" style="width:100%" onclick="clearChat()">清空对话</button>
         </div>
       </div>
     </div>
@@ -1979,21 +2054,25 @@
     <div id="tab-knowledge" class="tab-panel">
       <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px">
         <span
-          style="font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.8px;font-weight:600;flex:1">🧠
+          style="font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.8px;font-weight:600;flex:1">
           工具使用经验库</span>
-        <button class="btn btn-outline btn-sm" onclick="loadKnowledge()">🔄 刷新</button>
-        <button class="btn btn-sm" style="background:var(--purple);color:#000" onclick="toggleLearnPanel()">🤖
+        <button class="btn btn-outline btn-sm" onclick="loadKnowledge()">刷新</button>
+        <button class="btn btn-sm" style="background:var(--purple);color:#fff" onclick="toggleLearnPanel()">
           让AI学习</button>
-        <button class="btn btn-sm" onclick="showAddKnowledge()">➕ 手动添加</button>
-        <button class="btn btn-outline btn-sm" onclick="exportKnowledge()">📤 导出</button>
-        <button class="btn btn-outline btn-sm" onclick="document.getElementById('importFile').click()">📥 导入</button>
+        <button class="btn btn-sm" onclick="showAddKnowledge()">手动添加</button>
+        <button class="btn btn-outline btn-sm" onclick="openWhitelist()">白名单</button>
+        <button class="btn btn-outline btn-sm" onclick="exportKnowledge()">导出知识库</button>
+        <button class="btn btn-outline btn-sm" onclick="document.getElementById('importFile').click()">导入知识库</button>
         <input type="file" id="importFile" accept=".json" style="display:none" onchange="importKnowledge(this)">
+        <button class="btn btn-outline btn-sm" onclick="exportMcpRegistry()">导出技能包</button>
+        <button class="btn btn-outline btn-sm" onclick="document.getElementById('mcpImportFile').click()">导入技能包</button>
+        <input type="file" id="mcpImportFile" accept=".json" style="display:none" onchange="importMcpRegistry(this)">
       </div>
 
       <!-- AI 自学面板（包含参考资料输入） -->
       <div class="learn-panel" id="learnPanel" style="display:none">
         <div class="learn-panel-title">
-          🤖 AI 验证学习工具用法
+          AI 验证学习工具用法
           <span style="font-size:11px;font-weight:400;color:var(--muted)">— AI 会分析参考资料并验证每个命令是否有效，然后存档</span>
         </div>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">
@@ -2007,12 +2086,12 @@
           </div>
         </div>
         <div style="margin-bottom:12px">
-          <label class="field-label">📥 参考资料（可选，从网上搜索后粘贴，会自动清理格式）</label>
+          <label class="field-label">参考资料（可选，从网上搜索后粘贴，会自动清理格式）</label>
           <textarea id="learnRefContent" rows="4"
             placeholder="在网上搜索工具使用方法，然后复制粘贴到这里...&#10;AI 会分析这些资料并验证哪些命令有效。&#10;如果不填资料，AI 会自己探索。"></textarea>
         </div>
         <div style="display:flex;align-items:center;gap:10px">
-          <button class="btn btn-sm" style="background:var(--purple);color:#000" id="learnBtn" onclick="startLearn()">🚀
+          <button class="btn btn-sm" style="background:var(--purple);color:#fff" id="learnBtn" onclick="startLearn()">
             开始学习验证</button>
           <span style="font-size:11px;color:var(--muted)">AI 会逐一验证命令有效性，只存能用的</span>
         </div>
@@ -2022,7 +2101,7 @@
           <div class="learn-status" id="learnStatus"></div>
           <div class="learn-steps" id="learnSteps"></div>
           <div class="learn-result" id="learnResult" style="display:none">
-            <div class="learn-result-title">🧠 AI 学习结论</div>
+            <div class="learn-result-title">AI 学习结论</div>
             <div id="learnSummaryText" style="font-size:12px;color:var(--text);margin-bottom:10px;line-height:1.6">
             </div>
             <div id="learnHintsList"></div>
@@ -2033,51 +2112,37 @@
       <!-- 学习说明 -->
       <div
         style="font-size:12px;color:var(--muted);margin-bottom:16px;background:rgba(88,166,255,.06);border:1px solid rgba(88,166,255,.2);border-radius:7px;padding:10px 14px;line-height:1.6">
-        💡 <b>使用方式：</b>先在网上搜索工具用法 → 粘贴到「让AI学习」面板 → AI验证命令有效性并学会怎么用 → 自动存入知识库
+        <b>使用方式：</b>先在网上搜索工具用法 → 粘贴到「让AI学习」面板 → AI验证命令有效性并学会怎么用 → 自动存入知识库
       </div>
 
-      <div class="card" style="margin-bottom:16px">
-        <div class="card-title">良性白名单</div>
-        <div style="font-size:12px;color:var(--muted);margin-bottom:12px;line-height:1.6">
-          把你自己的服务进程、项目路径和正常外联说明写在这里，AI 巡检时会自动参考，减少把自家进程误报成挖矿或木马。
-        </div>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
-          <div class="form-row">
-            <label class="field-label">良性进程命令特征（每行一个）</label>
-            <textarea id="benignProcesses" rows="4" placeholder="如：&#10;python api.py&#10;python3 api.py&#10;uvicorn api:app"></textarea>
+      <div class="knowledge-dashboard">
+        <div class="knowledge-grid">
+          <div class="knowledge-list">
+            <div class="knowledge-list-header">
+              已导入的技能
+              <span id="mcpCount" style="font-weight:400;color:var(--muted)"></span>
+            </div>
+            <div id="mcpRegistryList" class="mcp-grid" style="padding:12px">
+              <div class="empty">暂无技能包<br><small>点击上方「导入技能包」导入</small></div>
+            </div>
           </div>
-          <div class="form-row">
-            <label class="field-label">良性路径关键字（每行一个）</label>
-            <textarea id="benignPaths" rows="4" placeholder="如：&#10;/root/AI-Security-Agent&#10;/opt/my-safe-service"></textarea>
-          </div>
-        </div>
-        <div class="form-row">
-          <label class="field-label">正常外联说明</label>
-          <textarea id="benignNetworkNote" rows="3" placeholder="如：python api.py 会正常访问 DeepSeek/OpenAI 模型接口，存在 HTTPS 外联和 SSE 长连接是正常行为。"></textarea>
-        </div>
-        <div style="display:flex;justify-content:flex-end">
-          <button class="btn btn-sm" onclick="saveBenignWhitelist()">保存白名单</button>
-        </div>
-      </div>
 
-      <div class="knowledge-grid">
-        <!-- 左：工具列表 -->
-        <div class="knowledge-list">
-          <div class="knowledge-list-header">
-            📋 已学习的工具
-            <span id="knowledgeCount" style="font-weight:400;color:var(--muted)"></span>
+          <div class="knowledge-list">
+            <div class="knowledge-list-header">
+              已学习的工具
+              <span id="knowledgeCount" style="font-weight:400;color:var(--muted)"></span>
+            </div>
+            <div class="knowledge-items" id="knowledgeItems">
+              <div class="empty">暂无工具<br><small>点击上方「让AI学习」开始</small></div>
+            </div>
           </div>
-          <div class="knowledge-items" id="knowledgeItems">
-            <div class="empty">暂无工具<br><small>点击上方「让AI学习」开始</small></div>
-          </div>
-        </div>
 
-        <!-- 右：详情 -->
-        <div class="knowledge-detail" id="knowledgeDetail">
-          <div class="no-selection">
-            <span style="font-size:32px">🧠</span>
-            <span>点击左侧工具查看详情</span>
-            <span style="font-size:12px;color:var(--muted)">或点击「让AI学习」添加新工具</span>
+          <div class="knowledge-detail" id="knowledgeDetail">
+            <div class="no-selection">
+              <span style="font-size:20px;font-weight:700">知识</span>
+              <span>点击中间工具查看详情</span>
+              <span style="font-size:12px;color:var(--muted)">详情区域固定高度，内容可滚动查看</span>
+            </div>
           </div>
         </div>
       </div>
@@ -2125,16 +2190,16 @@
     <!-- ════════════ 执行历史 ════════════ -->
     <div id="tab-history" class="tab-panel">
       <div class="history-toolbar">
-        <span class="section-title">📋 任务历史</span>
+        <span class="section-title">任务历史</span>
         <span id="historyCount" style="font-size:12px;color:var(--muted)"></span>
         <button class="btn-outline btn-sm btn" onclick="loadHistory()">刷新</button>
-        <button class="btn btn-red btn-sm" onclick="confirmClearAll()">🗑 清除全部</button>
+        <button class="btn btn-red btn-sm" onclick="confirmClearAll()">清除全部</button>
       </div>
 
       <!-- 批量操作栏 -->
       <div class="batch-bar" id="batchBar">
         <span>已选中 <span class="batch-count" id="batchCount">0</span> 条</span>
-        <button class="btn btn-red btn-xs" onclick="confirmDeleteSelected()">🗑 删除选中</button>
+        <button class="btn btn-red btn-xs" onclick="confirmDeleteSelected()">删除选中</button>
         <button class="btn-outline btn-xs btn" onclick="clearSelection()">取消选择</button>
       </div>
 
@@ -2187,7 +2252,7 @@
           </div>
           <div class="apf-actions">
             <button class="btn-outline btn-xs btn" onclick="hideAddProviderForm()">取消</button>
-            <button class="btn btn-xs btn-green" onclick="saveCustomProvider()">✓ 保存</button>
+            <button class="btn btn-xs btn-green" onclick="saveCustomProvider()">保存</button>
           </div>
         </div>
 
@@ -2220,10 +2285,40 @@
         <div id="testResult" class="test-result"></div>
       </div>
       <div class="modal-footer">
-        <button class="btn btn-red btn-sm" onclick="confirmClearAllKeys()" title="清除本地缓存的所有提供商 API Key">🗑 清除全部
+        <button class="btn btn-red btn-sm" onclick="confirmClearAllKeys()" title="清除本地缓存的所有提供商 API Key">清除全部
           Key</button>
-        <button class="btn-outline btn-sm btn" style="margin-left:auto" onclick="testConnection()">🔌 测试连接</button>
+        <button class="btn-outline btn-sm btn" style="margin-left:auto" onclick="testConnection()">测试连接</button>
         <button class="btn btn-sm" onclick="saveModelConfig()">保存配置</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="overlay" id="whitelistOverlay" onclick="closeWhitelist(event)">
+    <div class="modal" onclick="event.stopPropagation()">
+      <div class="modal-header">
+        <h2>良性白名单</h2>
+        <button class="modal-close" onclick="closeWhitelist()">×</button>
+      </div>
+      <div class="modal-body">
+        <div style="font-size:12px;color:var(--muted);margin-bottom:12px;line-height:1.6">
+          把你自己的服务进程、项目路径和正常外联说明写在这里，AI 巡检时会自动参考，减少把自家进程误报成异常行为。
+        </div>
+        <div class="form-row">
+          <label class="field-label">良性进程命令特征</label>
+          <textarea id="benignProcesses" rows="4" placeholder="如：&#10;python api.py&#10;uvicorn api:app"></textarea>
+        </div>
+        <div class="form-row">
+          <label class="field-label">良性路径关键字</label>
+          <textarea id="benignPaths" rows="4" placeholder="如：&#10;/root/AI-Security-Agent&#10;/opt/my-safe-service"></textarea>
+        </div>
+        <div class="form-row">
+          <label class="field-label">正常外联说明</label>
+          <textarea id="benignNetworkNote" rows="4" placeholder="如：python api.py 会正常访问模型接口，存在 HTTPS 外联和 SSE 长连接是正常行为。"></textarea>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn-outline btn-sm btn" onclick="closeWhitelist()">取消</button>
+        <button class="btn btn-sm" onclick="saveBenignWhitelist()">保存白名单</button>
       </div>
     </div>
   </div>
@@ -2262,6 +2357,7 @@
     let selectedToolName = null;
     let knowledgeData = [];
     let benignWhitelistData = null;
+    let mcpRegistryData = [];
 
     // 自定义快捷指令（按 OS 分组）
     // 结构：{ linux: [{label, task}, ...], windows: [...] }
@@ -2490,7 +2586,7 @@
       document.getElementById(`tab-${name}`).classList.add('active');
       btn.classList.add('active');
       if (name === 'history') { loadHistory(); loadMemStats(); }
-      if (name === 'knowledge') { loadKnowledge(); loadBenignWhitelist(); }
+      if (name === 'knowledge') { loadKnowledge(); loadBenignWhitelist(); loadMcpRegistry(); }
     }
 
     // ═══════════════════════════════════════════════
@@ -2977,10 +3073,10 @@
         a.click();
         document.body.removeChild(a);
         URL.revokeObjectURL(url);
-        showToast('✅ 知识库已导出', 'success');
+        toast('知识库已导出');
       } catch (e) {
         console.error('导出错误:', e);
-        showToast('❌ 导出失败: ' + e.message, 'error');
+        toast('导出失败: ' + e.message, 'fail');
       }
     }
 
@@ -2997,7 +3093,7 @@
         });
         const result = await resp.json();
         if (result.success) {
-          showToast(`✅ 导入成功: ${result.imported_count} 个工具`, 'success');
+          toast(`导入成功: ${result.imported_count} 个工具`);
           // 延迟刷新确保数据已写入
           setTimeout(() => {
             loadKnowledge();
@@ -3008,10 +3104,56 @@
             }
           }, 300);
         } else {
-          showToast('❌ 导入失败: ' + result.message, 'error');
+          toast('导入失败: ' + result.message, 'fail');
         }
       } catch (e) {
-        showToast('❌ 导入失败: ' + e.message, 'error');
+        toast('导入失败: ' + e.message, 'fail');
+      }
+      input.value = '';
+    }
+
+    async function exportMcpRegistry() {
+      try {
+        const resp = await fetch('/mcp/registry/export');
+        if (!resp.ok) throw new Error('HTTP ' + resp.status);
+        const blob = await resp.blob();
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `tool_registry_${new Date().toISOString().slice(0, 10)}.json`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+        toast('技能包已导出');
+      } catch (e) {
+        toast('技能包导出失败: ' + e.message, 'fail');
+      }
+    }
+
+    async function importMcpRegistry(input) {
+      const file = input.files[0];
+      if (!file) return;
+      try {
+        const text = await file.text();
+        const parsed = JSON.parse(text);
+        const payload = {
+          mode: parsed.mode || 'merge',
+          data: parsed.data && typeof parsed.data === 'object' ? parsed.data : parsed
+        };
+        const resp = await fetch('/mcp/registry/import', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+        const result = await resp.json();
+        if (!resp.ok) {
+          throw new Error(result.detail || result.message || ('HTTP ' + resp.status));
+        }
+        toast(`技能包导入成功: ${result.imported_count} 个工具`);
+        loadMcpRegistry();
+      } catch (e) {
+        toast('技能包导入失败: ' + e.message + '。请确认文件内容是合法 JSON，并且包含 tool+capabilities 或 tools 字段', 'fail');
       }
       input.value = '';
     }
@@ -3051,6 +3193,22 @@
       }
     }
 
+    async function loadMcpRegistry() {
+      try {
+        const r = await fetch('/mcp/registry');
+        const d = await r.json();
+        mcpRegistryData = d.items || [];
+        renderMcpRegistry();
+        const countEl = document.getElementById('mcpCount');
+        if (countEl) countEl.textContent = `${d.total || mcpRegistryData.length} 个`;
+      } catch (e) {
+        const container = document.getElementById('mcpRegistryList');
+        if (container) {
+          container.innerHTML = '<div class="empty" style="color:var(--red)">技能列表加载失败</div>';
+        }
+      }
+    }
+
     async function saveBenignWhitelist() {
       const body = {
         processes: splitLines(document.getElementById('benignProcesses').value),
@@ -3071,8 +3229,20 @@
         }
         benignWhitelistData = d;
         toast(d.message || '良性白名单已保存');
+        closeWhitelist();
       } catch (e) {
         toast('保存失败: ' + e.message, 'fail');
+      }
+    }
+
+    async function openWhitelist() {
+      await loadBenignWhitelist();
+      document.getElementById('whitelistOverlay').classList.add('show');
+    }
+
+    function closeWhitelist(e) {
+      if (!e || e.target === document.getElementById('whitelistOverlay')) {
+        document.getElementById('whitelistOverlay').classList.remove('show');
       }
     }
 
@@ -3096,6 +3266,56 @@
       }).join('');
     }
 
+    function renderMcpRegistry() {
+      const container = document.getElementById('mcpRegistryList');
+      if (!container) return;
+      if (!mcpRegistryData.length) {
+        container.innerHTML = '<div class="empty">暂无技能包<br><small>点击上方「导入技能包」导入</small></div>';
+        return;
+      }
+
+      container.innerHTML = mcpRegistryData.map(item => {
+        const capabilities = item.capabilities || [];
+        const toolPath = item.tool_path || '';
+        return `
+          <div class="mcp-card">
+            <div class="mcp-name">${esc(item.tool || '')}</div>
+            <div class="mcp-meta">
+              <div>${esc(item.summary || '未填写工具摘要')}</div>
+              <div>能力数量：${capabilities.length}</div>
+              ${toolPath ? `<div>路径：${esc(toolPath)}</div>` : ''}
+            </div>
+            <div class="mcp-cap-list">
+              ${capabilities.slice(0, 8).map(cap => `<span class="mcp-cap-tag">${esc(cap.name || '')}</span>`).join('')}
+              ${capabilities.length > 8 ? `<span class="mcp-cap-tag">+${capabilities.length - 8}</span>` : ''}
+            </div>
+            <div class="mcp-actions">
+              <button class="btn btn-outline btn-xs" style="color:var(--red);border-color:var(--red)" onclick="deleteMcpTool('${esc(item.tool || '')}')">卸载</button>
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
+
+    async function deleteMcpTool(toolName) {
+      if (!toolName) return;
+      const ok = confirm(`确定卸载技能 ${toolName} 吗？`);
+      if (!ok) return;
+      try {
+        const resp = await fetch(`/mcp/registry/${encodeURIComponent(toolName)}`, {
+          method: 'DELETE'
+        });
+        const result = await resp.json();
+        if (!resp.ok) {
+          throw new Error(result.detail || ('HTTP ' + resp.status));
+        }
+        toast(result.message || `已卸载技能 ${toolName}`);
+        loadMcpRegistry();
+      } catch (e) {
+        toast('卸载技能失败: ' + e.message, 'fail');
+      }
+    }
+
     function selectTool(toolName) {
       selectedToolName = toolName;
       renderKnowledgeList();
@@ -3107,7 +3327,7 @@
     function renderKnowledgeDetail(rec) {
       const container = document.getElementById('knowledgeDetail');
       if (!rec) {
-        container.innerHTML = '<div class="no-selection"><span style="font-size:32px">🧠</span><span>点击左侧工具查看详情</span></div>';
+        container.innerHTML = '<div class="no-selection"><span style="font-size:20px;font-weight:700">知识</span><span>点击左侧工具查看详情</span></div>';
         return;
       }
 
@@ -3175,9 +3395,9 @@
       // 底部操作
       html += `
     <div style="margin-top:20px;padding-top:16px;border-top:1px solid var(--border);display:flex;gap:10px;flex-wrap:wrap">
-      <button class="btn btn-sm" style="background:var(--purple);color:#000" onclick="relearn('${esc(rec.tool)}','${esc(toolPath)}')">🔄 重新学习</button>
-      <button class="btn btn-outline btn-sm" onclick="showEditTool('${esc(rec.tool)}')">✏ 编辑</button>
-      <button class="btn btn-outline btn-sm" style="color:var(--red);border-color:var(--red)" onclick="deleteToolKnowledge('${esc(rec.tool)}')">🗑 删除</button>
+      <button class="btn btn-sm" style="background:var(--purple);color:#fff" onclick="relearn('${esc(rec.tool)}','${esc(toolPath)}')">重新学习</button>
+      <button class="btn btn-outline btn-sm" onclick="showEditTool('${esc(rec.tool)}')">编辑</button>
+      <button class="btn btn-outline btn-sm" style="color:var(--red);border-color:var(--red)" onclick="deleteToolKnowledge('${esc(rec.tool)}')">删除</button>
       <span style="font-size:11px;color:var(--muted);margin-left:auto;align-self:center">更新于 ${updatedAt}</span>
     </div>
   `;
@@ -3293,9 +3513,9 @@
         closeEditToolModal();
         renderKnowledgeDetail(rec);
         renderKnowledgeList();
-        showToast('✅ 已保存修改', 'success');
+        toast('已保存修改');
       } catch (e) {
-        showToast('❌ 保存失败: ' + e.message, 'error');
+        toast('保存失败: ' + e.message, 'fail');
       }
     }
 
@@ -3338,7 +3558,7 @@
           toast('已删除');
           selectedToolName = null;
           loadKnowledge();
-          document.getElementById('knowledgeDetail').innerHTML = '<div class="no-selection"><span style="font-size:32px">🧠</span><span>选择左侧工具查看详情</span></div>';
+          document.getElementById('knowledgeDetail').innerHTML = '<div class="no-selection"><span style="font-size:20px;font-weight:700">知识</span><span>选择左侧工具查看详情</span></div>';
         } catch (e) { toast('删除失败', 'fail'); }
       });
     }

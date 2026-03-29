@@ -6,6 +6,7 @@ import subprocess
 import logging
 import platform
 import sys
+import os
 from typing import Tuple
 
 from config import COMMAND_TIMEOUT, MAX_OUTPUT_LENGTH
@@ -75,6 +76,17 @@ class CommandExecutor:
                 continue
         return raw_bytes.decode("latin-1", errors="replace")
 
+    def _build_windows_cmd(self, command: str) -> list:
+        """
+        构造 Windows 命令执行参数。
+
+        显式调用 cmd.exe，并先切到 UTF-8 代码页，尽量避免中文路径、
+        中文参数在传递给子进程时出现乱码。
+        """
+        comspec = os.environ.get("COMSPEC", "cmd.exe")
+        wrapped = f"chcp 65001>nul & {command}"
+        return [comspec, "/d", "/s", "/c", wrapped]
+
     def run(self, command: str) -> ExecutionResult:
         """
         执行 shell 命令。
@@ -97,10 +109,11 @@ class CommandExecutor:
         # ── 实际执行 ──────────────────────────────────────────────────────────
         try:
             if IS_WINDOWS:
-                # Windows：使用 cmd.exe，以字节方式读取后手动解码，避免编码问题
+                # Windows：显式调用 cmd.exe，并先切到 UTF-8 代码页。
+                # 不再依赖 shell=True 的默认解析，尽量减少中文路径乱码问题。
                 proc = subprocess.run(
-                    command,
-                    shell=True,
+                    self._build_windows_cmd(command),
+                    shell=False,
                     stdout=subprocess.PIPE,
                     stderr=subprocess.PIPE,
                     timeout=self.timeout,

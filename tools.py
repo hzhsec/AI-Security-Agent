@@ -8,6 +8,7 @@ from typing import Dict, Any, List
 
 from executor import executor
 from security import security, SecurityError
+from tool_registry import tool_registry
 
 logger = logging.getLogger(__name__)
 
@@ -190,6 +191,36 @@ def tool_finish(action: Dict[str, Any]) -> ToolResult:
     return ToolResult(summary, True, "finish")
 
 
+def tool_mcp(action: Dict[str, Any]) -> ToolResult:
+    """
+    调用 MCP 风格注册能力。
+    action: {"tool": "mcp_tool", "mcp_tool": "nmap_web_scan", "arguments": {"target": "example.com"}}
+    """
+    capability_name = (
+        action.get("mcp_tool")
+        or action.get("capability")
+        or action.get("name")
+        or ""
+    ).strip()
+    arguments = action.get("arguments", {})
+
+    if not capability_name:
+        return ToolResult("[mcp_tool] mcp_tool 字段为空", False, "mcp_tool")
+    if arguments is None:
+        arguments = {}
+    if not isinstance(arguments, dict):
+        return ToolResult("[mcp_tool] arguments 必须是对象", False, "mcp_tool")
+
+    result = tool_registry.execute_capability(capability_name, arguments)
+    output = result.get("output", "")
+    command = result.get("command", "")
+    if command:
+        output = f"[capability] {capability_name}\n[command] {command}\n{output}"
+    else:
+        output = f"[capability] {capability_name}\n{output}"
+    return ToolResult(output, result.get("success", False), "mcp_tool")
+
+
 # ─── 工具分发器 ───────────────────────────────────────────────────────────────
 
 TOOL_MAP = {
@@ -198,6 +229,7 @@ TOOL_MAP = {
     "file_read": tool_file_read,
     "file_write": tool_file_write,
     "http_request": tool_http_request,
+    "mcp_tool": tool_mcp,
     "finish": tool_finish,
 }
 
@@ -208,6 +240,7 @@ TOOL_DESCRIPTIONS = """
 - file_read: 读取文件内容，参数: path (str)
 - file_write: 写入文件内容，参数: path (str), content (str)
 - http_request: 发送 HTTP 请求，参数: url (str), method (str, 默认GET), headers (dict), body (str)
+- mcp_tool: 调用已注册的 MCP 风格工具能力，参数: mcp_tool (str), arguments (dict)
 - finish: 标记任务完成并输出完整报告，参数: summary (str) - 必须包含巡检结论
 """
 

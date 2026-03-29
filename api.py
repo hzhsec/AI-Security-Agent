@@ -23,6 +23,7 @@ from config import (
     MODEL_PRESETS, load_model_config, save_model_config, make_openai_client,
 )
 from tool_knowledge import tool_knowledge
+from tool_registry import tool_registry
 
 # ─── 日志配置 ─────────────────────────────────────────────────────────────────
 
@@ -128,6 +129,16 @@ class BenignWhitelistRequest(BaseModel):
     processes: Optional[list] = []
     paths: Optional[list] = []
     network_note: Optional[str] = ""
+
+
+class MCPExecuteRequest(BaseModel):
+    capability: str
+    arguments: Optional[Dict[str, Any]] = {}
+
+
+class MCPImportRequest(BaseModel):
+    data: Dict[str, Any]
+    mode: str = "merge"
 
 
 # ─── 路由 ─────────────────────────────────────────────────────────────────────
@@ -579,7 +590,7 @@ async def chat_with_ai(request: ChatRequest):
 
     # 根据 OS 类型添加工具路径和命令示例
     if os_type == "windows":
-        os_hint = """
+        os_hint = r"""
 
 ## 当前目标系统：Windows
 - 使用 **cmd/PowerShell 命令语法**
@@ -633,7 +644,7 @@ async def chat_stream(request: ChatRequest):
 
     # 根据 OS 类型添加工具路径和命令示例
     if os_type == "windows":
-        os_hint = """
+        os_hint = r"""
 
 ## 当前目标系统：Windows
 - 使用 **cmd/PowerShell 命令语法**
@@ -702,6 +713,88 @@ async def get_tool_knowledge():
     """获取全部工具知识记录"""
     items = tool_knowledge.list_all()
     return {"ok": True, "total": len(items), "items": items}
+
+
+@app.get("/mcp/registry")
+async def get_mcp_registry():
+    """获取 MCP 风格工具注册表。"""
+    items = tool_registry.list_all()
+    return {"ok": True, "total": len(items), "items": items}
+
+
+@app.get("/mcp/registry/export")
+async def export_mcp_registry():
+    """导出整个 MCP 技能注册表。"""
+    data = tool_registry.export_all()
+    return JSONResponse(
+        content=data,
+        media_type="application/json",
+        headers={"Content-Disposition": "attachment; filename=tool_registry.json"},
+    )
+
+
+@app.post("/mcp/registry/import")
+async def import_mcp_registry(request: MCPImportRequest):
+    """导入 MCP 技能定义。支持单个工具或整份注册表。"""
+    result = tool_registry.import_data(request.data, mode=request.mode)
+    if not result.get("success"):
+        raise HTTPException(status_code=400, detail=result.get("message", "导入失败"))
+    return {"ok": True, **result}
+
+
+@app.get("/mcp/registry/{tool_name}")
+async def get_one_mcp_registry(tool_name: str):
+    """获取单个工具的 MCP 风格能力定义。"""
+    rec = tool_registry.get_tool(tool_name)
+    if not rec:
+        raise HTTPException(status_code=404, detail=f"工具 {tool_name} 暂无注册能力")
+    return {"ok": True, "tool": tool_name, **rec}
+
+
+@app.get("/mcp/registry/export/{tool_name}")
+async def export_one_mcp_registry(tool_name: str):
+    """导出单个工具的 MCP 技能定义。"""
+    data = tool_registry.export_tool(tool_name)
+    if not data:
+        raise HTTPException(status_code=404, detail=f"工具 {tool_name} 暂无注册能力")
+    return JSONResponse(
+        content=data,
+        media_type="application/json",
+        headers={"Content-Disposition": f"attachment; filename={tool_name}_registry.json"},
+    )
+
+
+@app.delete("/mcp/registry/{tool_name}")
+async def delete_one_mcp_registry(tool_name: str):
+    """卸载单个 MCP 技能工具。"""
+    ok = tool_registry.delete_tool(tool_name)
+    if not ok:
+        raise HTTPException(status_code=404, detail=f"工具 {tool_name} 暂无注册能力")
+    return {"ok": True, "message": f"已卸载技能 {tool_name}"}
+
+
+@app.post("/mcp/registry/sync/{tool_name}")
+async def sync_mcp_registry(tool_name: str):
+    """把指定工具的知识库记录同步成结构化能力。"""
+    rec = tool_knowledge.get(tool_name)
+    if not rec:
+        raise HTTPException(status_code=404, detail=f"工具 {tool_name} 暂无知识记录")
+    result = tool_registry.sync_from_knowledge_record(tool_name, rec)
+    if not result:
+        raise HTTPException(status_code=400, detail=f"工具 {tool_name} 暂未生成可注册能力")
+    return {"ok": True, "tool": tool_name, "registry": result}
+
+
+@app.post("/mcp/execute")
+async def execute_mcp_capability(request: MCPExecuteRequest):
+    """直接执行一个 MCP 风格能力，便于调试和前端接入。"""
+    capability = (request.capability or "").strip()
+    if not capability:
+        raise HTTPException(status_code=400, detail="capability 不能为空")
+    result = tool_registry.execute_capability(capability, request.arguments or {})
+    if not result.get("success") and "未找到已注册能力" in result.get("output", ""):
+        raise HTTPException(status_code=404, detail=result["output"])
+    return {"ok": result.get("success", False), **result}
 
 
 @app.get("/benign-whitelist")
@@ -795,6 +888,19 @@ async def update_tool_knowledge(request: ToolKnowledgeUpdateRequest):
 
     # 更新工具路径和简介
     rec = tool_knowledge.get(tool_name)
+    if not rec and (request.tool_path is not None or request.summary is not None):
+        tool_knowledge.knowledge[tool_name] = {
+            "tool": tool_name,
+            "usage_hints": [],
+            "errors": [],
+            "tool_path": request.tool_path or "",
+            "summary": request.summary or "",
+            "updated_at": time.time(),
+        }
+        tool_knowledge._save()
+        tool_knowledge._sync_registry(tool_name)
+        rec = tool_knowledge.get(tool_name)
+
     if rec:
         if request.tool_path is not None:
             tool_knowledge.update_tool_path(tool_name, request.tool_path)
@@ -804,6 +910,7 @@ async def update_tool_knowledge(request: ToolKnowledgeUpdateRequest):
         if request.tool_path is not None or request.summary is not None:
             rec["updated_at"] = time.time()
             tool_knowledge._save()
+            tool_knowledge._sync_registry(tool_name)
 
     return {"ok": True, "message": f"工具 {tool_name} 知识已更新"}
 

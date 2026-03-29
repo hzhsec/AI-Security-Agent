@@ -16,6 +16,8 @@ import re
 import threading
 from typing import Dict, List, Optional, Generator
 
+from tool_registry import tool_registry
+
 logger = logging.getLogger(__name__)
 
 KNOWLEDGE_FILE = "tool_knowledge.json"
@@ -259,6 +261,8 @@ class ToolKnowledge:
         }
         self._load()
         self._load_benign_whitelist()
+        for tool_name in list(self.knowledge.keys()):
+            self._sync_registry(tool_name)
 
     # ── 基础 CRUD ──────────────────────────────────────────────────────────────
 
@@ -302,6 +306,15 @@ class ToolKnowledge:
             pass
         except Exception as e:
             logger.warning(f"[ToolKnowledge] 加载良性白名单失败: {e}")
+
+    def _sync_registry(self, tool_name: str):
+        """尽量把知识库记录同步成结构化能力，不影响主流程。"""
+        try:
+            rec = self.knowledge.get(tool_name)
+            if rec:
+                tool_registry.sync_from_knowledge_record(tool_name, rec)
+        except Exception as e:
+            logger.warning(f"[ToolKnowledge] 同步注册中心失败: {tool_name} | {e}")
 
     def _save_benign_whitelist(self):
         try:
@@ -473,6 +486,7 @@ class ToolKnowledge:
         rec["errors"] = rec["errors"][-10:]
         rec["updated_at"] = time.time()
         self._save()
+        self._sync_registry(tool_name)
         logger.info(f"[ToolKnowledge] 记录错误: {tool_name} | {failed_command}")
 
     def update_usage(self, tool_name: str, usage_hint: str, help_text: str = ""):
@@ -490,6 +504,7 @@ class ToolKnowledge:
             rec["help_summary"] = help_text[:800]
         rec["updated_at"] = time.time()
         self._save()
+        self._sync_registry(tool_name)
         logger.info(f"[ToolKnowledge] 更新用法: {tool_name}")
 
     def update_tool_path(self, tool_name: str, new_path: str) -> bool:
@@ -525,6 +540,7 @@ class ToolKnowledge:
 
             rec["updated_at"] = time.time()
             self._save()
+            self._sync_registry(tool_name)
             return True
 
     # ── 外部参考资料导入 ─────────────────────────────────────────────────────────
@@ -569,6 +585,7 @@ class ToolKnowledge:
 
         rec["updated_at"] = time.time()
         self._save()
+        self._sync_registry(tool_name)
 
         logger.info(f"[ToolKnowledge] 导入参考资料: {tool_name} ({len(extracted_cmds)} 条命令)")
 
@@ -928,6 +945,7 @@ class ToolKnowledge:
         rec["source"] = "ai_explore"  # 标记来源为 AI 主动探索
 
         self._save()
+        self._sync_registry(tool_name)
         logger.info(f"[ToolKnowledge] 自学完成，已存档: {tool_name} ({len(usage_hints)} 条用法)")
 
     # ── System Prompt 注入 ─────────────────────────────────────────────────────

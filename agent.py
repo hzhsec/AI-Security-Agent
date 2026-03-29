@@ -16,6 +16,7 @@ from config import (
 from memory import memory
 from tools import dispatcher, TOOL_DESCRIPTIONS
 from tool_knowledge import tool_knowledge
+from tool_registry import tool_registry
 
 logger = logging.getLogger(__name__)
 
@@ -35,6 +36,8 @@ _JSON_FORMAT = f"""
   "content": "文件内容（file_write时填）",
   "url": "URL（http_request时填）",
   "method": "GET",
+  "mcp_tool": "MCP 风格能力名（tool=mcp_tool时填）",
+  "arguments": {{"key": "value"}},
   "summary": "总结（tool=finish时填）",
   "learn_tool": "工具名（命令失败时，若已知正确用法请填入，触发知识库更新）",
   "learn_usage": "正确的使用方法说明（配合learn_tool使用）",
@@ -429,6 +432,7 @@ class LinuxAgent:
         base_prompt = get_system_prompt(os_type)
         known_tools = tool_knowledge.extract_tool_names_from_task(task)
         knowledge_hint = tool_knowledge.build_context_hint(known_tools if known_tools else None)
+        mcp_hint = tool_registry.build_mcp_prompt(known_tools if known_tools else None)
         benign_hint = tool_knowledge.build_builtin_benign_hint(os_type)
         user_benign_hint = tool_knowledge.build_user_benign_hint(os_type)
 
@@ -439,6 +443,8 @@ class LinuxAgent:
             parts.append(user_benign_hint)
         if knowledge_hint:
             parts.append(knowledge_hint)
+        if mcp_hint:
+            parts.append(mcp_hint)
         return "".join(parts)
 
     def _handle_tool_learning(self, action: Dict[str, Any], tool_result, command_display: str):
