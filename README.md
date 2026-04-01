@@ -2,6 +2,8 @@
 
 基于大语言模型的主机安全巡检系统，支持 Linux / Windows，提供任务执行、工具知识库、MCP 风格技能包、执行历史和良性白名单。
 
+当前版本：`v1.6.0`
+
 ## 主要功能
 
 - AI Agent Loop：自动思考、执行、观察、总结
@@ -11,6 +13,14 @@
 - MCP 技能包：支持导入、导出、执行、卸载结构化工具能力
 - 良性白名单：减少把自有服务和正常外联误判为恶意行为
 - 多模型支持：兼容 OpenAI API 格式的模型服务
+
+## 最近改进
+
+- Agent 流程增加阶段控制、重复命令抑制和本地 reviewer 审查
+- 新增证据面覆盖跟踪与独立 finalize 收尾机制，减少无效步骤
+- 对进程、网络、持久化、登录审计等高频命令增加本地结构化摘要
+- 前端步骤状态区分为成功 / 部分成功 / 失败，减少误读
+- 前端静态资源已拆分为 `index.html`、`app.css`、`app.js`，便于维护
 
 ## 界面预览
 
@@ -277,6 +287,8 @@ python api.py
 AI-Security-Agent/
 ├── api.py
 ├── agent.py
+├── prompt_builder.py
+├── result_structurer.py
 ├── executor.py
 ├── tools.py
 ├── tool_knowledge.py
@@ -286,7 +298,9 @@ AI-Security-Agent/
 ├── security.py
 ├── config.py
 ├── static/
-│   └── index.html
+│   ├── index.html
+│   ├── app.css
+│   └── app.js
 ├── model_config.json
 ├── task_history.json
 ├── tool_knowledge.json

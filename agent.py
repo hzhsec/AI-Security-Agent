@@ -7,200 +7,18 @@ import logging
 import re
 from typing import Dict, Any, List, Generator
 
-from openai import OpenAI
-
 from config import (
-    DEEPSEEK_API_KEY, DEEPSEEK_BASE_URL, DEEPSEEK_MODEL,
-    MAX_ITERATIONS, load_model_config, make_openai_client,
+    MAX_ITERATIONS, MAX_SAME_COMMAND_ATTEMPTS, MAX_FAILED_COMMAND_ATTEMPTS,
+    FINALIZE_MIN_SUMMARY_CHARS, FINALIZE_MIN_DONE_EVIDENCE,
+    load_model_config, make_openai_client,
 )
 from memory import memory
-from tools import dispatcher, TOOL_DESCRIPTIONS
+from prompt_builder import get_agent_base_prompt, build_agent_workflow_hint, build_finalize_prompt
+from tools import dispatcher
 from tool_knowledge import tool_knowledge
 from tool_registry import tool_registry
 
 logger = logging.getLogger(__name__)
-
-# ─── System Prompt ─────────────────────────────────────────────────────────────
-
-# JSON 格式说明（两个版本共用）
-_JSON_FORMAT = f"""
-每次响应必须返回一个合法的 JSON 对象（**严禁在 JSON 前后附加任何文字**），格式：
-
-```json
-{{
-  "thought": "分析思考过程",
-  "tool": "工具名",
-  "command": "shell命令（tool=shell或shell_batch时填写）",
-  "commands": ["cmd1", "cmd2"],
-  "path": "文件路径（file_read/file_write时填）",
-  "content": "文件内容（file_write时填）",
-  "url": "URL（http_request时填）",
-  "method": "GET",
-  "mcp_tool": "MCP 风格能力名（tool=mcp_tool时填）",
-  "arguments": {{"key": "value"}},
-  "summary": "总结（tool=finish时填）",
-  "learn_tool": "工具名（命令失败时，若已知正确用法请填入，触发知识库更新）",
-  "learn_usage": "正确的使用方法说明（配合learn_tool使用）",
-  "continue": true
-}}
-```
-
-{TOOL_DESCRIPTIONS}"""
-
-# ─── Linux System Prompt ──────────────────────────────────────────────────────
-
-SYSTEM_PROMPT_LINUX = f"""你是一个专业的 **Linux** 安全运维 AI Agent，具备完整的主机安全巡检和入侵排查能力。
-你运行在私有环境（非公网），用户已授权你执行所有必要的系统命令，包括读取系统文件、执行安全脚本等。
-
-## 核心工作方式
-{_JSON_FORMAT}
-
-## 【工具学习机制】
-当你执行某个工具命令失败时（尤其是 -h 帮助输出揭示了正确用法后），请在下一步的 JSON 中填入：
-- `"learn_tool"`: 工具名（如 "whocheck"、"linuxcheckshoot"）
-- `"learn_usage"`: 你从帮助文档或错误信息中学到的正确用法（一句话描述）
-这样系统会把你学到的经验保存下来，下次同一工具不再出错。
-
-## 【极重要】减少步骤的策略
-
-**你必须尽可能在一步内完成多项操作**，防止因步骤过多被截断：
-
-1. **优先使用 `shell_batch`**（批量执行）来一次性运行多条命令，例如：
-   ```json
-   {{"tool": "shell_batch", "commands": ["whoami", "id", "uname -a", "df -h", "free -h"]}}
-   ```
-
-2. **用分号或 && 合并相关命令**：
-   ```json
-   {{"tool": "shell", "command": "cd /root/check && ls -la && echo '---脚本列表---'"}}
-   ```
-
-3. **安全巡检任务的推荐执行顺序**：
-   - Step1: 用 shell_batch 一次性收集基础信息（用户/进程/网络/文件）
-   - Step2: 先用 `tool -h` 查看帮助，再直接执行巡检脚本
-   - Step3: 综合分析所有结果，用 finish 给出结论
-
-4. **脚本执行方式**：
-   - 先查看帮助：`/root/check/whocheck -h`
-   - 直接执行：`bash /root/check/whocheck` 或 `python3 /root/check/script.py`
-   - 如果脚本需要权限：`chmod +x /root/check/whocheck && /root/check/whocheck`
-
-5. **【重要】处理大量输出的命令**：当查询可能返回大量结果的命令时，**务必使用过滤参数**避免输出被截断：
-   - 查询进程：`ps aux` → 加 `grep 进程名` 过滤
-   - 查询端口：`netstat -antp` → 加 `grep 端口号` 过滤
-   - 查询文件：`find / -name "*.php"` → 加 `grep 关键词` 过滤，或用 `-maxdepth` 限制深度
-   - **原则**：先精准定位，再扩大范围，不要一次性查全部
-
-## Linux 安全巡检专用知识
-执行入侵排查时，重点关注：
-- **异常账号**：/etc/passwd 新增账号、uid=0账号、可登录账号
-- **异常进程**：隐藏进程、可疑父进程、异常网络连接进程
-- **异常网络**：未知监听端口、异常外联 IP、大流量连接
-- **持久化后门**：crontab、~/.bashrc、/etc/rc.local、SSH authorized_keys、SUID文件
-- **文件篡改**：近期被修改的系统文件、webshell特征文件
-- **日志清除**：/var/log/auth.log 或 secure 中的暴力破解记录
-
-## 规则
-1. **只返回 JSON**，无任何 markdown 或其他文字
-2. 任务完成用：`{{"tool": "finish", "summary": "完整的巡检报告...", "continue": false}}`
-3. finish 的 summary 必须包含：**发现的威胁 / 可疑项 / 结论建议**，不要只写"完成"
-4. 命令失败时分析原因后换方式重试，不要反复执行同一条失败命令
-5. 你有完整系统权限，不需要回避 sudo/root 相关操作
-6. **【极重要】当前是 Linux 系统**：所有命令必须使用 Linux bash 语法
-   - 正确：`cat /etc/passwd`、`ps aux`、`grep`、`ls -la`、`chmod +x`、`./script.sh`
-   - 错误：混入任何 Windows 命令（如 `type`、`dir`、`icacls`）
-7. **命令不存在或语法错误时的学习机制**：当你执行的命令失败（command not found、syntax error、invalid option 等），分析错误原因后：
-   - 如果你知道正确用法，下一步 JSON 中填入 `"learn_tool": "工具名"` 和 `"learn_usage": "正确用法"`
-   - 如果不知道正确用法，尝试查看帮助（`命令 -h` 或 `命令 --help`），然后把学到的用法填入 learn_tool/learn_usage
-   - 这样系统会自动保存到知识库，下次不再踩坑
-"""
-
-# ─── Windows System Prompt ────────────────────────────────────────────────────
-
-SYSTEM_PROMPT_WINDOWS = f"""你是一个专业的 **Windows** 安全运维 AI Agent，具备完整的主机安全巡检和入侵排查能力。
-你运行在私有环境（非公网），用户已授权你执行所有必要的系统命令，包括读取系统文件、执行安全脚本等。
-
-## 核心工作方式
-{_JSON_FORMAT}
-
-## 【工具学习机制】
-当你执行某个工具命令失败时，请在下一步的 JSON 中填入：
-- `"learn_tool"`: 工具名（如 "whocheck"、"PsExec"）
-- `"learn_usage"`: 你从帮助文档或错误信息中学到的正确用法（一句话描述）
-
-## 【极重要】减少步骤的策略
-
-**你必须尽可能在一步内完成多项操作**：
-
-1. **优先使用 `shell_batch`** 批量执行多条命令，例如：
-   ```json
-   {{"tool": "shell_batch", "commands": [
-     "whoami /all",
-     "systeminfo | findstr /B /C:\\"OS\\"",
-     "netstat -ano",
-     "tasklist /v"
-   ]}}
-   ```
-
-2. **用 `&` 合并相关命令**（Windows cmd 用 `&`，PowerShell 用 `;`）：
-   ```json
-   {{"tool": "shell", "command": "cd C:\\\\check & dir & echo ---完毕---"}}
-   ```
-
-3. **Windows 安全巡检推荐顺序**：
-   - Step1: shell_batch 一次性收集系统信息（账号/进程/网络/服务）
-   - Step2: 执行巡检脚本（.bat / .ps1 / .exe）
-   - Step3: 综合分析，finish 给出结论
-
-4. **脚本执行方式**：
-   - .bat 脚本：`C:\\check\\whocheck.bat` 或 `cmd /c C:\\check\\whocheck.bat`
-   - PowerShell 脚本：`powershell -ExecutionPolicy Bypass -File C:\\check\\scan.ps1`
-   - .exe 工具：`C:\\check\\whocheck.exe` 或 `C:\\check\\whocheck.exe /?`
-   - 查看帮助：`C:\\check\\whocheck.exe /?` 或 `C:\\check\\whocheck.exe --help`
-
-5. **【重要】处理大量输出的命令**：当查询可能返回大量结果的命令时（如服务列表、进程列表、防火墙规则），**务必使用过滤参数**避免输出被截断：
-   - 查询服务：`sc query type= service state= all` → 加 `findstr "服务名"` 过滤
-   - 查询进程：`tasklist /v` → 加 `findstr "进程名"` 过滤
-   - 查询防火墙规则：`netsh advfirewall firewall show rule name=all` → 加 `findstr "规则名"` 过滤
-   - 或使用 PowerShell 的 `Where-Object`、`Select-Object` 做精确筛选
-   - **原则**：先精准定位，再扩大范围，不要一次性查全部
-
-## Windows 安全巡检专用知识
-执行入侵排查时，重点关注：
-- **异常账号**：`net user`、`wmic useraccount`，注意隐藏账号（名称末尾$）、新建管理员
-- **异常进程**：`tasklist /v`、`wmic process`，注意无签名进程、路径在 Temp/AppData 下的进程
-- **异常网络**：`netstat -ano` 联合 `tasklist`，注意监听在非常规端口的进程、外联 IP
-- **持久化后门**：注册表启动项（HKCU/HKLM Run）、计划任务（`schtasks /query`）、服务（`sc query`）、WMI 订阅
-- **文件篡改**：近期修改的系统文件（System32）、Webshell（.asp/.aspx/.php 修改时间异常）
-- **日志清除**：事件日志（`wevtutil el`）、PowerShell 历史清除痕迹
-- **凭据窃取**：LSASS 内存 dump、SAM 文件访问记录
-- **防御绕过**：Defender 排除目录（`Get-MpPreference`）、UAC 绕过痕迹
-
-## 规则
-1. **只返回 JSON**，无任何 markdown 或其他文字
-2. 任务完成用：`{{"tool": "finish", "summary": "完整的巡检报告...", "continue": false}}`
-3. finish 的 summary 必须包含：**发现的威胁 / 可疑项 / 结论建议**
-4. 命令失败时分析原因后换方式重试，不要反复执行同一条失败命令
-5. 你有完整系统权限，不需要回避 UAC/管理员相关操作
-6. **【极重要】当前是 Windows 系统**：所有命令必须使用 Windows cmd 或 PowerShell 语法
-   - 正确：`type C:\\Windows\\System32\\config`、`findstr`、`dir /a`、`icacls`、`powershell -Command "Get-Process"`
-   - 错误：混入任何 Linux 命令（如 `cat /etc/passwd`、`grep`、`ls -la`、`chmod +x`）
-   - 注意：Windows 的 `netsh` 输出不能使用 Linux 的 `head`、`tail`、`grep`，需要用 `findstr` 或 PowerShell
-7. **命令不存在或语法错误时的学习机制**：当你执行的命令失败（命令不存在、语法错误、无效参数等），分析错误原因后：
-   - 如果你知道正确用法，下一步 JSON 中填入 `"learn_tool": "工具名"` 和 `"learn_usage": "正确用法"`
-   - 如果不知道正确用法，尝试查看帮助（`命令 /?` 或 `命令 -h`），然后把学到的用法填入 learn_tool/learn_usage
-   - 这样系统会自动保存到知识库，下次不再踩坑
-"""
-
-# 默认兼容旧调用
-SYSTEM_PROMPT = SYSTEM_PROMPT_LINUX
-
-
-def get_system_prompt(os_type: str) -> str:
-    """根据目标系统类型返回对应的 System Prompt"""
-    if os_type == "windows":
-        return SYSTEM_PROMPT_WINDOWS
-    return SYSTEM_PROMPT_LINUX
 
 
 # ─── JSON 解析工具函数 ──────────────────────────────────────────────────────────
@@ -292,6 +110,98 @@ def parse_ai_response(raw: str) -> Dict[str, Any]:
         }
 
 
+def normalize_action(action: Dict[str, Any], current_phase: str = "collect") -> Dict[str, Any]:
+    """
+    对模型返回的动作做统一校验与修复。
+    目标是尽量本地纠正明显格式错误，减少因输出漂移导致的任务中断。
+    """
+    if not isinstance(action, dict):
+        return {
+            "thought": "AI 返回的动作不是对象，已回退为纠错提示命令",
+            "tool": "shell",
+            "command": "echo [上一步AI动作不是合法对象，请按JSON协议重新规划]",
+            "continue": True,
+        }
+
+    normalized = dict(action)
+    tool = str(normalized.get("tool", "shell") or "shell").strip().lower()
+    allowed_tools = {"shell", "shell_batch", "file_read", "file_write", "http_request", "mcp_tool", "finish"}
+    if tool not in allowed_tools:
+        tool = "shell"
+    normalized["tool"] = tool
+
+    for field in ("thought", "plan", "summary", "path", "url", "method", "learn_tool", "learn_usage", "mcp_tool"):
+        value = normalized.get(field)
+        if value is None:
+            continue
+        if not isinstance(value, str):
+            normalized[field] = str(value)
+
+    continue_value = normalized.get("continue", True)
+    if isinstance(continue_value, str):
+        normalized["continue"] = continue_value.strip().lower() not in ("false", "0", "no")
+    else:
+        normalized["continue"] = bool(continue_value)
+
+    evidence = normalized.get("evidence", [])
+    if isinstance(evidence, str):
+        normalized["evidence"] = [evidence] if evidence.strip() else []
+    elif isinstance(evidence, list):
+        normalized["evidence"] = [str(item).strip() for item in evidence if str(item).strip()]
+    else:
+        normalized["evidence"] = [str(evidence)] if evidence else []
+
+    arguments = normalized.get("arguments", {})
+    if tool == "mcp_tool":
+        if not isinstance(arguments, dict):
+            normalized["arguments"] = {}
+        if not normalized.get("mcp_tool", "").strip():
+            normalized["tool"] = "shell"
+            normalized["command"] = "echo [mcp_tool 缺少能力名，请重新选择能力或改用 shell]"
+            normalized["continue"] = True
+
+    command = normalized.get("command", "")
+    commands = normalized.get("commands", [])
+
+    if tool == "shell":
+        if isinstance(command, list):
+            normalized["tool"] = "shell_batch"
+            normalized["commands"] = [str(item).strip() for item in command if str(item).strip()]
+            normalized["command"] = ""
+        elif command is None:
+            normalized["command"] = ""
+        elif not isinstance(command, str):
+            normalized["command"] = str(command)
+
+    if normalized["tool"] == "shell_batch":
+        if isinstance(commands, str):
+            normalized["commands"] = [commands] if commands.strip() else []
+        elif isinstance(commands, list):
+            normalized["commands"] = [str(item).strip() for item in commands if str(item).strip()]
+        elif command:
+            normalized["commands"] = [str(command).strip()]
+        else:
+            normalized["commands"] = []
+
+        if not normalized["commands"] and isinstance(command, str) and command.strip():
+            normalized["commands"] = [command.strip()]
+
+        if len(normalized["commands"]) == 1 and current_phase == "conclude":
+            normalized["tool"] = "shell"
+            normalized["command"] = normalized["commands"][0]
+
+    if normalized["tool"] == "finish":
+        summary = (normalized.get("summary") or "").strip()
+        if not summary:
+            normalized["tool"] = "shell"
+            normalized["command"] = "echo [finish 缺少 summary，请先整理 threats suspicious normal advice 再结束]"
+            normalized["continue"] = True
+        else:
+            normalized["continue"] = False
+
+    return normalized
+
+
 # ─── AI Agent 主类 ─────────────────────────────────────────────────────────────
 
 class LinuxAgent:
@@ -378,6 +288,58 @@ class LinuxAgent:
             action["commands"] = [single_cmd] if single_cmd else []
             logger.info(f"[ActionFix] 将字符串 commands 转为列表: {action['commands']}")
 
+    def _determine_phase(self, session, iteration: int, action: Dict[str, Any], tool_result=None) -> str:
+        """根据当前会话状态推断下一阶段。"""
+        if action.get("tool") == "finish":
+            return "conclude"
+
+        total_steps = len(session.steps) if session else 0
+        failed_steps = sum(1 for step in session.steps if not step.success) if session else 0
+        current_phase = getattr(session, "phase", "plan") if session else "plan"
+
+        if current_phase == "plan":
+            return "collect"
+
+        if current_phase == "collect":
+            if total_steps >= 3 or failed_steps >= 2:
+                return "verify"
+            return "collect"
+
+        if current_phase == "verify":
+            if iteration >= max(4, MAX_ITERATIONS - 2):
+                return "conclude"
+            if tool_result is not None and tool_result.success and total_steps >= 5:
+                return "conclude"
+            return "verify"
+
+        return "conclude"
+
+    def _build_phase_hint(self, phase: str) -> str:
+        """给当前轮次附加阶段提醒。"""
+        hints = {
+            "plan": (
+                "当前阶段: plan\n"
+                "- 先明确任务范围、重点证据面、可优先使用的工具\n"
+                "- 本轮尽量给出低风险的起手动作"
+            ),
+            "collect": (
+                "当前阶段: collect\n"
+                "- 优先覆盖账号、进程、网络、持久化、日志中的空白证据面\n"
+                "- 适合使用 shell_batch 或 mcp_tool 一次收集多项信息"
+            ),
+            "verify": (
+                "当前阶段: verify\n"
+                "- 围绕已发现异常做定向验证\n"
+                "- 不要重复执行已经验证过的全量采集命令"
+            ),
+            "conclude": (
+                "当前阶段: conclude\n"
+                "- 除非缺少关键证据，否则优先 finish\n"
+                "- 总结时明确 threats / suspicious / normal / advice"
+            ),
+        }
+        return hints.get(phase, "")
+
     def _get_action_display(self, action: Dict[str, Any]) -> str:
         """生成步骤展示文本，避免 shell_batch 的 commands 在历史中丢失。"""
         tool = action.get("tool", "")
@@ -387,7 +349,227 @@ class LinuxAgent:
                 clean_commands = [str(cmd).strip() for cmd in commands if str(cmd).strip()]
                 if clean_commands:
                     return " ; ".join(clean_commands)
-        return action.get("command") or action.get("path") or action.get("url") or action.get("summary", "")
+        primary = action.get("command")
+        if isinstance(primary, list):
+            primary = " ; ".join(str(item).strip() for item in primary if str(item).strip())
+        elif primary is not None and not isinstance(primary, str):
+            primary = str(primary)
+        return primary or action.get("path") or action.get("url") or action.get("summary", "")
+
+    def _normalize_for_compare(self, text: str) -> str:
+        """对命令文本做轻量归一化，便于重复检测。"""
+        text = (text or "").strip().lower()
+        text = re.sub(r"\s+", " ", text)
+        return text
+
+    def _should_block_repeated_action(self, session, action: Dict[str, Any], command_display: str) -> Dict[str, Any] | None:
+        """
+        检测重复命令与失败重试过多的情况。
+        命中后返回一个替代动作，让模型收到明确反馈并换策略。
+        """
+        if not session:
+            return None
+
+        tool = (action.get("tool") or "").strip().lower()
+        if tool not in ("shell", "shell_batch", "mcp_tool"):
+            return None
+
+        normalized_command = self._normalize_for_compare(command_display)
+        if not normalized_command:
+            return None
+
+        same_attempts = 0
+        failed_attempts = 0
+        for step in reversed(session.steps):
+            if self._normalize_for_compare(step.command) != normalized_command:
+                continue
+            same_attempts += 1
+            if not step.success:
+                failed_attempts += 1
+
+        if failed_attempts >= MAX_FAILED_COMMAND_ATTEMPTS:
+            return {
+                "tool": "shell",
+                "command": (
+                    "echo [策略提醒] 上一条命令或等价命令已连续失败多次，请不要原样重试。"
+                    "请改用更小范围、更稳妥的命令，或先查看帮助后再执行。"
+                ),
+                "continue": True,
+                "thought": f"检测到重复失败命令，已触发本地保护: {command_display[:120]}",
+            }
+
+        if same_attempts >= MAX_SAME_COMMAND_ATTEMPTS:
+            return {
+                "tool": "shell",
+                "command": (
+                    "echo [策略提醒] 同一命令已重复执行多次，请切换到验证或总结阶段，"
+                    "避免继续消耗步骤和 token。"
+                ),
+                "continue": True,
+                "thought": f"检测到重复命令，已提示模型换策略: {command_display[:120]}",
+            }
+
+        return None
+
+    def _is_heavy_command(self, command_display: str) -> bool:
+        """识别容易产生大量噪音输出的命令。"""
+        normalized = self._normalize_for_compare(command_display)
+        heavy_patterns = [
+            "ps aux",
+            "tasklist",
+            "netstat -ano",
+            "netstat -antp",
+            "ss -an",
+            "ss -tlnp",
+            "find /",
+            "dir /s",
+            "wevtutil qe",
+            "journalctl",
+            "sc query",
+            "schtasks /query",
+        ]
+        return any(pattern in normalized for pattern in heavy_patterns)
+
+    def _review_action(self, session, action: Dict[str, Any], command_display: str) -> Dict[str, Any] | None:
+        """
+        本地 reviewer 层。
+        在执行前基于阶段、覆盖率和命令形态做一次守门，减少偏题和高噪音动作。
+        """
+        if not session:
+            return None
+
+        tool = (action.get("tool") or "").strip().lower()
+        phase = getattr(session, "phase", "collect")
+        coverage = getattr(session, "evidence_coverage", {}) or {}
+        done_count = sum(1 for value in coverage.values() if value == "done")
+
+        if phase == "conclude" and tool != "finish":
+            return {
+                "tool": "shell",
+                "command": (
+                    "echo [Reviewer] 当前已进入 conclude 阶段。除非缺少关键证据，否则不要继续采集，"
+                    "请优先整理最终结论。"
+                ),
+                "continue": True,
+                "thought": f"reviewer 判断应优先收尾，而不是继续执行: {command_display[:120]}",
+            }
+
+        if phase == "verify" and self._is_heavy_command(command_display):
+            return {
+                "tool": "shell",
+                "command": (
+                    "echo [Reviewer] 当前处于 verify 阶段，检测到高噪音全量命令。"
+                    "请缩小范围，只验证已发现的异常点。"
+                ),
+                "continue": True,
+                "thought": f"reviewer 阻止 verify 阶段的全量高噪音命令: {command_display[:120]}",
+            }
+
+        if phase in ("collect", "verify") and done_count >= 5 and tool in ("shell", "shell_batch") and self._is_heavy_command(command_display):
+            return {
+                "tool": "shell",
+                "command": (
+                    "echo [Reviewer] 主要证据面已基本覆盖，这条命令收益较低且输出较大。"
+                    "请转向定向验证或直接总结。"
+                ),
+                "continue": True,
+                "thought": f"reviewer 认为当前命令性价比过低: {command_display[:120]}",
+            }
+
+        if tool == "finish":
+            summary = (action.get("summary") or "").strip()
+            if done_count < 3 and len(summary) < 80:
+                return {
+                    "tool": "shell",
+                    "command": (
+                        "echo [Reviewer] 证据覆盖仍然不足，且总结过短。"
+                        "请至少补齐关键证据面或给出更具体的 finish 总结。"
+                    ),
+                    "continue": True,
+                    "thought": "reviewer 拒绝过早 finish，原因是证据不足或总结过短",
+                }
+
+        return None
+
+    def _infer_evidence_updates(self, task: str, action: Dict[str, Any], tool_result) -> Dict[str, str]:
+        """根据任务、命令与输出粗略推断证据面覆盖情况。"""
+        text_parts = [
+            task or "",
+            action.get("tool", "") or "",
+            self._get_action_display(action),
+            getattr(tool_result, "output", "") if tool_result else "",
+        ]
+        joined = " ".join(part if isinstance(part, str) else str(part) for part in text_parts).lower()
+        updates: Dict[str, str] = {}
+
+        mappings = {
+            "accounts": ["passwd", "shadow", "whoami", "last", "net user", "useraccount", "localuser", "账号", "登录"],
+            "processes": ["tasklist", "get-process", "wmic process", "ps ", "pgrep", "进程", "父进程"],
+            "network": ["netstat", "ss ", "tcp", "udp", "端口", "连接", "firewall", "监听"],
+            "persistence": ["crontab", "systemctl", "schtasks", "startup", "run\\", "计划任务", "启动项", "服务"],
+            "logs": ["journalctl", "auth.log", "secure", "wevtutil", "win event", "日志", "event"],
+            "files": ["find ", "dir ", "ls ", "system32", "authorized_keys", "tmp", "webshell", "文件"],
+        }
+
+        for key, keywords in mappings.items():
+            if any(word in joined for word in keywords):
+                updates[key] = "done" if getattr(tool_result, "success", False) else "partial"
+
+        return updates
+
+    def _finalize_report(self, task_id: str, task: str, os_type: str, steps: List[Dict], draft_summary: str = "") -> str:
+        """独立调用模型生成最终总结，提高收尾稳定性。"""
+        session = memory.get_session(task_id)
+        finalize_prompt = build_finalize_prompt(
+            task=task,
+            os_type=os_type,
+            phase=getattr(session, "phase", "conclude") if session else "conclude",
+            evidence_coverage=getattr(session, "evidence_coverage", {}) if session else {},
+            steps=steps,
+            draft_summary=draft_summary or "",
+        )
+        messages = [{"role": "system", "content": finalize_prompt}]
+        try:
+            client, model, provider = self._get_client_and_model()
+            logger.info(f"[Finalize] 使用模型生成最终报告: {provider} / {model}")
+            response = client.chat.completions.create(
+                model=model,
+                messages=messages,
+                temperature=0.2,
+                max_tokens=1800,
+            )
+            final_text = (response.choices[0].message.content or "").strip()
+            return final_text or draft_summary or "未能生成最终报告，请查看执行步骤。"
+        except Exception as e:
+            logger.error(f"[Finalize] 最终报告生成失败: {e}")
+            return draft_summary or f"最终总结生成失败，请结合执行步骤人工复核。错误: {e}"
+
+    def _should_run_finalize(self, task_id: str, draft_summary: str, forced: bool = False) -> bool:
+        """判断是否真的需要额外调用 finalize。"""
+        if forced:
+            return True
+
+        session = memory.get_session(task_id)
+        if not session:
+            return True
+
+        summary = (draft_summary or "").strip()
+        done_count = sum(1 for value in session.evidence_coverage.values() if value == "done")
+        has_sections = summary.count("## ") >= 3
+        has_risk = "风险" in summary
+        has_advice = "建议" in summary or "处置" in summary
+
+        if not summary:
+            return True
+        if len(summary) < FINALIZE_MIN_SUMMARY_CHARS:
+            return True
+        if done_count < FINALIZE_MIN_DONE_EVIDENCE:
+            return True
+        if not has_sections:
+            return True
+        if not (has_risk and has_advice):
+            return True
+        return False
 
     def _compress_messages(self, messages: List[Dict], keep_recent: int = 10) -> List[Dict]:
         """
@@ -429,14 +611,17 @@ class LinuxAgent:
 
     def _build_system_prompt(self, task: str, os_type: str = "linux") -> str:
         """构建带工具知识库的动态 System Prompt，根据 os_type 选择不同基底"""
-        base_prompt = get_system_prompt(os_type)
+        base_prompt = get_agent_base_prompt(os_type)
         known_tools = tool_knowledge.extract_tool_names_from_task(task)
         knowledge_hint = tool_knowledge.build_context_hint(known_tools if known_tools else None)
         mcp_hint = tool_registry.build_mcp_prompt(known_tools if known_tools else None)
         benign_hint = tool_knowledge.build_builtin_benign_hint(os_type)
         user_benign_hint = tool_knowledge.build_user_benign_hint(os_type)
+        workflow_hint = build_agent_workflow_hint(task, os_type)
 
         parts = [base_prompt]
+        if workflow_hint:
+            parts.append(workflow_hint)
         if benign_hint:
             parts.append(benign_hint)
         if user_benign_hint:
@@ -454,6 +639,7 @@ class LinuxAgent:
         2. 如果 AI 主动上报了 learn_tool/learn_usage，更新知识库
         """
         tool = action.get("tool", "") or ""
+        command_display = command_display if isinstance(command_display, str) else str(command_display)
         learn_tool = (action.get("learn_tool") or "").strip()
         learn_usage = action.get("learn_usage") or ""
         if isinstance(learn_usage, str):
@@ -497,11 +683,17 @@ class LinuxAgent:
         logger.info(f"=== 开始执行任务 [{task_id}] [os={os_type}]: {task} ===")
 
         dynamic_system_prompt = self._build_system_prompt(task, os_type)
+        memory.update_phase(task_id, "plan")
 
         for iteration in range(1, MAX_ITERATIONS + 1):
             logger.info(f"--- 第 {iteration} 轮 Agent Loop ---")
 
             messages = memory.build_messages(task_id, dynamic_system_prompt)
+            session = memory.get_session(task_id)
+            if session:
+                phase_hint = self._build_phase_hint(session.phase)
+                if phase_hint:
+                    messages.append({"role": "user", "content": phase_hint})
 
             try:
                 raw_response = self._call_ai(messages)
@@ -511,7 +703,7 @@ class LinuxAgent:
                 memory.finish_session(task_id, "failed", f"AI API 错误: {e}")
                 return self._build_report(task_id, steps_summary)
 
-            action = parse_ai_response(raw_response)
+            action = normalize_action(parse_ai_response(raw_response), getattr(session, "phase", "collect") if session else "collect")
             
             tool = action.get("tool", "shell")
             self._normalize_shell_batch_action(action)
@@ -522,9 +714,28 @@ class LinuxAgent:
             logger.info(f"[AI thought] {thought}")
             logger.info(f"[AI action] tool={tool}, commands={action.get('commands')}, command={command_display}")
 
+            blocked_action = self._should_block_repeated_action(memory.get_session(task_id), action, command_display)
+            if blocked_action:
+                logger.info(f"[ActionGuard] 阻止重复动作: {command_display}")
+                action = blocked_action
+                tool = action.get("tool", "shell")
+                thought = action.get("thought", thought)
+                should_continue = action.get("continue", True)
+                command_display = self._get_action_display(action)
+
+            reviewed_action = self._review_action(memory.get_session(task_id), action, command_display)
+            if reviewed_action:
+                logger.info(f"[Reviewer] 调整动作: {command_display}")
+                action = reviewed_action
+                tool = action.get("tool", "shell")
+                thought = action.get("thought", thought)
+                should_continue = action.get("continue", True)
+                command_display = self._get_action_display(action)
+
             tool_result = dispatcher.dispatch(action)
 
             self._handle_tool_learning(action, tool_result, command_display)
+            memory.update_evidence_coverage(task_id, self._infer_evidence_updates(task, action, tool_result))
 
             step = memory.record_step(
                 task_id=task_id,
@@ -534,6 +745,8 @@ class LinuxAgent:
                 command=command_display,
                 result=tool_result.output,
                 success=tool_result.success,
+                status=getattr(tool_result, "status", "ok"),
+                structured_summary=getattr(tool_result, "structured_summary", ""),
             )
             steps_summary.append({
                 "step": iteration,
@@ -542,19 +755,32 @@ class LinuxAgent:
                 "command": command_display,
                 "result": tool_result.output,
                 "success": tool_result.success,
+                "status": getattr(tool_result, "status", "ok"),
+                "note": getattr(tool_result, "note", ""),
+                "structured_summary": getattr(tool_result, "structured_summary", ""),
             })
 
             logger.info(f"[Tool result] success={tool_result.success}: {tool_result.output[:200]}")
 
+            next_phase = self._determine_phase(memory.get_session(task_id), iteration, action, tool_result)
+            memory.update_phase(task_id, next_phase)
+
             if tool == "finish" or not should_continue:
-                final_answer = tool_result.output
+                memory.update_phase(task_id, "conclude")
+                if self._should_run_finalize(task_id, tool_result.output, forced=False):
+                    final_answer = self._finalize_report(task_id, task, os_type, steps_summary, tool_result.output)
+                else:
+                    logger.info("[Finalize] 复用主循环总结，跳过额外 API 调用")
+                    final_answer = tool_result.output
                 memory.finish_session(task_id, "completed", final_answer)
                 logger.info(f"=== 任务完成 [{task_id}] ===")
                 return self._build_report(task_id, steps_summary, final_answer)
 
         logger.warning(f"任务 [{task_id}] 达到最大迭代次数 {MAX_ITERATIONS}，强制终止")
-        memory.finish_session(task_id, "aborted", f"超出最大步骤限制 ({MAX_ITERATIONS} 步)")
-        return self._build_report(task_id, steps_summary, "任务超出最大步骤限制，已终止")
+        memory.update_phase(task_id, "conclude")
+        final_answer = self._finalize_report(task_id, task, os_type, steps_summary, f"主循环超出最大步骤限制 ({MAX_ITERATIONS} 步)，请基于已有证据收敛结论。")
+        memory.finish_session(task_id, "aborted", final_answer)
+        return self._build_report(task_id, steps_summary, final_answer)
 
     def stream_run(self, task: str, task_id: str = None, os_type: str = "linux", stop_event=None) -> Generator[Dict, None, None]:
         """
@@ -572,6 +798,7 @@ class LinuxAgent:
         steps_summary = []
 
         dynamic_system_prompt = self._build_system_prompt(task, os_type)
+        memory.update_phase(task_id, "plan")
 
         yield {"event": "start", "task_id": task_id, "task": task, "os_type": os_type}
 
@@ -586,6 +813,11 @@ class LinuxAgent:
             # ─────────────────────────────────────────────────────
 
             messages = memory.build_messages(task_id, dynamic_system_prompt)
+            session = memory.get_session(task_id)
+            if session:
+                phase_hint = self._build_phase_hint(session.phase)
+                if phase_hint:
+                    messages.append({"role": "user", "content": phase_hint})
 
             try:
                 # 传入 stop_event，AI 等待期间也能响应停止
@@ -599,7 +831,7 @@ class LinuxAgent:
                 memory.finish_session(task_id, "failed", str(e))
                 return
 
-            action = parse_ai_response(raw_response)
+            action = normalize_action(parse_ai_response(raw_response), getattr(session, "phase", "collect") if session else "collect")
             
             tool = action.get("tool", "shell")
             self._normalize_shell_batch_action(action)
@@ -619,8 +851,27 @@ class LinuxAgent:
                 "step": iteration,
                 "thought": thought,
                 "tool": tool,
+                "phase": getattr(session, "phase", "plan") if session else "plan",
                 "command": action.get("commands") or command_display,
             }
+
+            blocked_action = self._should_block_repeated_action(memory.get_session(task_id), action, command_display)
+            if blocked_action:
+                logger.info(f"[ActionGuard] 阻止重复动作: {command_display}")
+                action = blocked_action
+                tool = action.get("tool", "shell")
+                thought = action.get("thought", thought)
+                should_continue = action.get("continue", True)
+                command_display = self._get_action_display(action)
+
+            reviewed_action = self._review_action(memory.get_session(task_id), action, command_display)
+            if reviewed_action:
+                logger.info(f"[Reviewer] 调整动作: {command_display}")
+                action = reviewed_action
+                tool = action.get("tool", "shell")
+                thought = action.get("thought", thought)
+                should_continue = action.get("continue", True)
+                command_display = self._get_action_display(action)
 
             tool_result = dispatcher.dispatch(action)
 
@@ -632,6 +883,7 @@ class LinuxAgent:
             # ─────────────────────────────────────────────────────
 
             self._handle_tool_learning(action, tool_result, command_display)
+            memory.update_evidence_coverage(task_id, self._infer_evidence_updates(task, action, tool_result))
 
             memory.record_step(
                 task_id=task_id,
@@ -641,6 +893,8 @@ class LinuxAgent:
                 command=command_display,
                 result=tool_result.output,
                 success=tool_result.success,
+                status=getattr(tool_result, "status", "ok"),
+                structured_summary=getattr(tool_result, "structured_summary", ""),
             )
 
             steps_summary.append({
@@ -650,32 +904,50 @@ class LinuxAgent:
                 "command": command_display,
                 "result": tool_result.output,
                 "success": tool_result.success,
+                "status": getattr(tool_result, "status", "ok"),
+                "note": getattr(tool_result, "note", ""),
+                "structured_summary": getattr(tool_result, "structured_summary", ""),
             })
 
             yield {
                 "event": "step_result",
                 "step": iteration,
                 "tool": tool,
+                "phase": getattr(memory.get_session(task_id), "phase", "plan") if memory.get_session(task_id) else "plan",
                 "command": command_display,
                 "result": tool_result.output,
                 "success": tool_result.success,
+                "status": getattr(tool_result, "status", "ok"),
+                "note": getattr(tool_result, "note", ""),
+                "structured_summary": getattr(tool_result, "structured_summary", ""),
             }
 
+            next_phase = self._determine_phase(memory.get_session(task_id), iteration, action, tool_result)
+            memory.update_phase(task_id, next_phase)
+
             if tool == "finish" or not should_continue:
-                memory.finish_session(task_id, "completed", tool_result.output)
+                memory.update_phase(task_id, "conclude")
+                if self._should_run_finalize(task_id, tool_result.output, forced=False):
+                    final_answer = self._finalize_report(task_id, task, os_type, steps_summary, tool_result.output)
+                else:
+                    logger.info("[Finalize] 复用主循环总结，跳过额外 API 调用")
+                    final_answer = tool_result.output
+                memory.finish_session(task_id, "completed", final_answer)
                 yield {
                     "event": "done",
                     "task_id": task_id,
-                    "final_answer": tool_result.output,
+                    "final_answer": final_answer,
                     "steps": steps_summary,
                 }
                 return
 
-        memory.finish_session(task_id, "aborted", "超出最大步骤限制")
+        memory.update_phase(task_id, "conclude")
+        final_answer = self._finalize_report(task_id, task, os_type, steps_summary, f"主循环超出最大步骤限制 ({MAX_ITERATIONS} 步)，请基于已有证据收敛结论。")
+        memory.finish_session(task_id, "aborted", final_answer)
         yield {
             "event": "done",
             "task_id": task_id,
-            "final_answer": "任务超出最大步骤限制，已终止",
+            "final_answer": final_answer,
             "steps": steps_summary,
         }
 
@@ -685,6 +957,8 @@ class LinuxAgent:
             "task_id": task_id,
             "task": session.task if session else "",
             "status": session.status if session else "unknown",
+            "phase": session.phase if session else "unknown",
+            "evidence_coverage": session.evidence_coverage if session else {},
             "steps": steps,
             "final_answer": final_answer,
             "duration": session.duration() if session else 0,

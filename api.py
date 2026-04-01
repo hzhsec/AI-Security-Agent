@@ -18,6 +18,7 @@ import uvicorn
 
 from agent import agent
 from memory import memory
+from prompt_builder import build_analysis_prompt, build_chat_system_prompt
 from config import (
     API_HOST, API_PORT, LOG_FILE, LOG_LEVEL,
     MODEL_PRESETS, load_model_config, save_model_config, make_openai_client,
@@ -42,7 +43,7 @@ logger = logging.getLogger(__name__)
 app = FastAPI(
     title="AI Agent运维管理",
     description="通过 AI 自动执行任务的智能代理系统",
-    version="1.5.0",
+    version="1.6.0",
 )
 
 app.add_middleware(
@@ -90,6 +91,7 @@ class PromptGenRequest(BaseModel):
     task_id: Optional[str] = None   # 基于某个任务生成提示词
     raw_text: Optional[str] = None  # 基于自由文本生成提示词
     style: str = "security"         # security / ops / debug / custom
+    os_type: str = "linux"          # linux / windows
 
 
 class ChatRequest(BaseModel):
@@ -321,7 +323,7 @@ async def health_check():
     return {
         "status": "ok",
         "service": "AI Linux Agent",
-        "version": "1.5.0",
+        "version": "1.6.0",
         "model": f"{cfg.get('provider', '?')} / {cfg.get('model', '?')}",
     }
 
@@ -449,39 +451,6 @@ async def test_model_connection(request: ModelConfigRequest):
 
 # ─── 提示词生成接口 ───────────────────────────────────────────────────────────
 
-# 各类场景的提示词模板
-_PROMPT_TEMPLATES = {
-    "security": (
-        "你是一名 Linux 主机安全专家，请对以下内容进行入侵检测分析：\n\n"
-        "{content}\n\n"
-        "请从以下维度逐一分析：\n"
-        "1. 异常账号/权限变更\n2. 可疑进程/服务\n3. 异常网络连接\n"
-        "4. 持久化后门迹象\n5. 日志异常\n6. 文件篡改\n\n"
-        "最后给出：【风险等级】（高/中/低/无）和【处置建议】"
-    ),
-    "ops": (
-        "你是一名 Linux 运维工程师，请分析以下系统信息并给出运维建议：\n\n"
-        "{content}\n\n"
-        "请分析：\n"
-        "1. 系统资源使用情况（CPU/内存/磁盘）\n2. 服务运行状态\n"
-        "3. 潜在性能瓶颈\n4. 配置优化建议\n5. 预防性维护建议"
-    ),
-    "debug": (
-        "你是一名 Linux 故障排查专家，请分析以下错误信息并提供解决方案：\n\n"
-        "{content}\n\n"
-        "请提供：\n"
-        "1. 问题根因分析\n2. 逐步排查步骤\n3. 具体修复命令\n"
-        "4. 预防再次发生的措施"
-    ),
-    "summary": (
-        "请将以下 Linux 命令执行记录整理成一份简洁的巡检报告：\n\n"
-        "{content}\n\n"
-        "报告格式：\n"
-        "## 巡检摘要\n## 发现的问题\n## 正常项目\n## 建议操作"
-    ),
-}
-
-
 @app.post("/prompt/generate")
 async def generate_prompt(request: PromptGenRequest):
     """
@@ -515,10 +484,8 @@ async def generate_prompt(request: PromptGenRequest):
         raise HTTPException(
             status_code=400, detail="task_id 和 raw_text 至少提供一个")
 
-    # 选择模板
-    style = request.style if request.style in _PROMPT_TEMPLATES else "security"
-    template = _PROMPT_TEMPLATES[style]
-    prompt = template.replace("{content}", content)
+    style = request.style if request.style in ("security", "ops", "debug", "summary", "ioc") else "security"
+    prompt = build_analysis_prompt(style, content, request.os_type)
 
     return {
         "ok": True,
@@ -538,40 +505,12 @@ async def get_prompt_templates():
             {"key": "ops", "name": "运维状态分析", "desc": "资源使用、性能瓶颈"},
             {"key": "debug", "name": "故障排查", "desc": "错误分析、修复方案"},
             {"key": "summary", "name": "执行报告汇总", "desc": "命令记录整理成报告"},
+            {"key": "ioc", "name": "IOC 提取", "desc": "提取 IP、路径、进程、账号等线索"},
         ]
     }
 
 
 # ─── AI 对话接口（任务完善助手）────────────────────────────────────────────────
-
-_CHAT_REFINE_SYSTEM = """你是一个 Linux 安全运维 AI Agent 的「任务描述优化助手」。
-你的职责是：帮助用户把模糊的想法转化为精确、完整的 Agent 任务指令。
-
-## 工作流程
-1. 理解用户描述的目标（哪怕表达不清楚）
-2. 如有关键信息缺失，提出 1-2 个最关键的问题（不要一次问太多）
-3. 当信息足够时，生成一条完整的任务指令，**必须**使用以下格式：
-   **✅ 推荐任务指令：**
-   ```
-   [完整的任务描述，可直接发送给 Agent 执行]
-   ```
-4. 可在推荐指令前附上简短说明：这条指令会让 Agent 做什么
-
-## 重要规则
-- **不要**说"好的，已发送给 Agent 执行"这类话 —— 你只是生成推荐指令，不直接执行
-- **不要**在推荐指令外添加多余的解释或道歉
-- 简洁直接，不废话
-- 主动推断用户意图，不过度追问
-- 推荐指令要尽量具体，包含工具路径、执行目标、检查重点
-
-## 常见工具路径参考
-- 安全巡检脚本通常在 /root/check/ 目录
-- whocheck、linuxcheckshoot 等是常见的巡检工具名
-"""
-
-_CHAT_FREE_SYSTEM = """你是一个专业的 Linux 安全运维专家，可以回答各种 Linux 系统、网络安全、运维相关的问题。
-回答简洁专业，必要时提供命令示例。"""
-
 
 @app.post("/chat")
 async def chat_with_ai(request: ChatRequest):
@@ -585,26 +524,7 @@ async def chat_with_ai(request: ChatRequest):
     if os_type not in ("linux", "windows"):
         os_type = "linux"
 
-    # 基础提示词
-    base_prompt = _CHAT_REFINE_SYSTEM if request.mode == "refine" else _CHAT_FREE_SYSTEM
-
-    # 根据 OS 类型添加工具路径和命令示例
-    if os_type == "windows":
-        os_hint = r"""
-
-## 当前目标系统：Windows
-- 使用 **cmd/PowerShell 命令语法**
-- 工具路径通常在 `C:\check\` 目录
-"""
-    else:  # Linux
-        os_hint = """
-
-## 当前目标系统：Linux
-- 使用 **bash 命令语法**
-- 工具路径通常在 `/root/check/` 目录
-"""
-
-    system_prompt = base_prompt + os_hint
+    system_prompt = build_chat_system_prompt(request.mode, os_type)
 
     messages = [{"role": "system", "content": system_prompt}]
     # 加入历史对话
@@ -639,36 +559,7 @@ async def chat_stream(request: ChatRequest):
     if os_type not in ("linux", "windows"):
         os_type = "linux"
 
-    # 基础提示词
-    base_prompt = _CHAT_REFINE_SYSTEM if request.mode == "refine" else _CHAT_FREE_SYSTEM
-
-    # 根据 OS 类型添加工具路径和命令示例
-    if os_type == "windows":
-        os_hint = r"""
-
-## 当前目标系统：Windows
-- 使用 **cmd/PowerShell 命令语法**
-- 工具路径通常在 `C:\check\` 目录
-- 查看日志使用：`Get-WinEvent`、`wevtutil`
-- 查看进程使用：`tasklist`、`Get-Process`
-- 查看网络使用：`netstat -ano`、`Get-NetTCPConnection`
-- 查看用户账号使用：`net user`、`Get-LocalUser`
-- 检查启动项使用：注册表 `HKLM\Software\Microsoft\Windows\CurrentVersion\Run`
-"""
-    else:  # Linux
-        os_hint = """
-
-## 当前目标系统：Linux
-- 使用 **bash 命令语法**
-- 工具路径通常在 `/root/check/` 目录
-- 查看日志使用：`journalctl`、`/var/log/auth.log`、`/var/log/secure`
-- 查看进程使用：`ps aux`、`top`、`pgrep`
-- 查看网络使用：`ss -tlnp`、`netstat -tlnp`
-- 查看用户账号使用：`/etc/passwd`、`last`、`who`
-- 检查启动项使用：`systemctl list-unit-files --type=service`、`crontab -l`
-"""
-
-    system_prompt = base_prompt + os_hint
+    system_prompt = build_chat_system_prompt(request.mode, os_type)
 
     messages = [{"role": "system", "content": system_prompt}]
     for turn in (request.history or []):
@@ -1049,7 +940,7 @@ async def get_learn_status(tool_name: str):
 if __name__ == "__main__":
     print(f"""
 ╔══════════════════════════════════════════╗
-║       AI Linux Agent  v1.5.0             ║
+║       AI Linux Agent  v1.6.0             ║
 ║  http://127.0.0.1:{API_PORT}                    ║
 ║  接口文档: http://127.0.0.1:{API_PORT}/docs    ║
 ╚══════════════════════════════════════════╝

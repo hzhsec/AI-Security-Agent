@@ -15,6 +15,10 @@ DEEPSEEK_MODEL = "deepseek-chat"
 MAX_ITERATIONS = 40          # 单次任务最大循环轮次（安全巡检等复杂任务需要更多轮次）
 COMMAND_TIMEOUT = 120        # 命令执行超时（秒，脚本类任务可能较慢）
 MAX_OUTPUT_LENGTH = 6000     # 命令输出最大字符数（巡检输出较多，适当放大）
+MAX_SAME_COMMAND_ATTEMPTS = 2  # 同一命令最大重复尝试次数
+MAX_FAILED_COMMAND_ATTEMPTS = 2  # 同一失败命令最大重复失败次数
+FINALIZE_MIN_SUMMARY_CHARS = 180  # 低于该长度时，优先触发独立 finalize
+FINALIZE_MIN_DONE_EVIDENCE = 4    # 已覆盖证据面达到该数量时，可优先复用主循环总结
 
 # ─── Web API 配置 ───────────────────────────────────────────────────────────
 API_HOST = "0.0.0.0"

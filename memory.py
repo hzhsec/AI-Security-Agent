@@ -21,6 +21,8 @@ class StepRecord:
     command: str
     result: str
     success: bool
+    status: str = "ok"
+    structured_summary: str = ""
     timestamp: float = field(default_factory=time.time)
 
     def to_dict(self) -> Dict:
@@ -45,6 +47,15 @@ class TaskSession:
     end_time: Optional[float] = None
     steps: List[StepRecord] = field(default_factory=list)
     status: str = "running"   # running | completed | failed | aborted
+    phase: str = "plan"       # plan | collect | verify | conclude
+    evidence_coverage: Dict[str, str] = field(default_factory=lambda: {
+        "accounts": "todo",
+        "processes": "todo",
+        "network": "todo",
+        "persistence": "todo",
+        "logs": "todo",
+        "files": "todo",
+    })
     final_answer: str = ""
 
     def add_step(self, step: StepRecord):
@@ -99,6 +110,27 @@ class Memory:
                 self._save_history()
                 logger.info(f"任务完成: {task_id} | 状态: {status} | 耗时: {session.duration()}s")
 
+    def update_phase(self, task_id: str, phase: str):
+        """更新任务当前阶段。"""
+        with self._lock:
+            session = self.sessions.get(task_id)
+            if not session:
+                return
+            phase = (phase or "").strip().lower()
+            if phase and session.phase != phase:
+                session.phase = phase
+                logger.info(f"[Memory] 任务阶段更新: {task_id} -> {phase}")
+
+    def update_evidence_coverage(self, task_id: str, updates: Dict[str, str]):
+        """更新证据面覆盖状态。"""
+        with self._lock:
+            session = self.sessions.get(task_id)
+            if not session or not updates:
+                return
+            for key, value in updates.items():
+                if key in session.evidence_coverage and value:
+                    session.evidence_coverage[key] = value
+
     # ── 步骤记录 ──────────────────────────────────────────────────────────────
 
     def record_step(
@@ -110,6 +142,8 @@ class Memory:
         command: str,
         result: str,
         success: bool,
+        status: str = "ok",
+        structured_summary: str = "",
     ) -> StepRecord:
         step = StepRecord(
             step_no=step_no,
@@ -118,6 +152,8 @@ class Memory:
             command=command,
             result=result,
             success=success,
+            status=status,
+            structured_summary=structured_summary,
         )
         with self._lock:
             session = self.sessions.get(task_id)
@@ -143,6 +179,13 @@ class Memory:
                 "content": f"任务: {session.task}"
             })
 
+            snapshot = self._build_session_snapshot(session)
+            if snapshot:
+                messages.append({
+                    "role": "user",
+                    "content": snapshot
+                })
+
             # 历史步骤作为 assistant/user 对话轮次
             for step in session.steps:
                 # AI 上一步的决策
@@ -161,6 +204,70 @@ class Memory:
                 })
 
         return messages
+
+    def _build_session_snapshot(self, session: TaskSession) -> str:
+        """构建任务状态快照，帮助 AI 在长流程中保持阶段感。"""
+        if not session.steps:
+            return (
+                "当前状态快照:\n"
+                "- 这是第 1 轮执行\n"
+                "- 尚无历史结果，请先做低风险信息收集\n"
+                "- 优先一次收集账号、进程、网络、持久化、关键日志相关证据\n"
+                "- 如果存在结构化工具能力，优先使用结构化能力"
+            )
+
+        total_steps = len(session.steps)
+        success_steps = sum(1 for step in session.steps if step.success)
+        failed_steps = total_steps - success_steps
+        recent_steps = session.steps[-4:]
+
+        lines = [
+            "当前状态快照:",
+            f"- 已执行轮次: {total_steps}",
+            f"- 当前阶段: {session.phase}",
+            f"- 成功步骤: {success_steps}",
+            f"- 失败步骤: {failed_steps}",
+        ]
+        lines.append("- 证据面覆盖:")
+        for key, value in session.evidence_coverage.items():
+            lines.append(f"  - {key}: {value}")
+
+        recent_failures = [
+            step for step in reversed(session.steps)
+            if not step.success and step.command
+        ][:2]
+        if recent_failures:
+            lines.append("- 最近失败命令:")
+            for step in recent_failures:
+                lines.append(
+                    f"  - step {step.step_no}: [{step.tool}] {step.command[:120]}"
+                )
+
+        lines.append("- 最近关键观察:")
+        for step in recent_steps:
+            status = "成功" if step.success else "失败"
+            result = (step.result or "").replace("\r", " ").replace("\n", " ")
+            result = result[:180] + ("..." if len(result) > 180 else "")
+            lines.append(
+                f"  - step {step.step_no} | {status} | {step.tool} | {step.command[:100]}"
+            )
+            lines.append(f"    输出摘要: {result}")
+
+        if total_steps >= 6:
+            lines.append("- 决策提醒: 若核心证据已足够，请优先汇总结论，避免重复采集")
+        else:
+            lines.append("- 决策提醒: 优先补齐账号、进程、网络、持久化、日志中尚未覆盖的证据面")
+
+        phase_advice = {
+            "plan": "- 阶段要求: 先明确检查范围与优先证据面，再进入采集",
+            "collect": "- 阶段要求: 优先广覆盖采集，避免过早下结论",
+            "verify": "- 阶段要求: 围绕已发现的异常做定向验证，不再重复全量扫描",
+            "conclude": "- 阶段要求: 以收敛结论为主，尽快输出 threats / suspicious / normal / advice",
+        }
+        if session.phase in phase_advice:
+            lines.append(phase_advice[session.phase])
+
+        return "\n".join(lines)
 
     # ── 历史持久化 ────────────────────────────────────────────────────────────
 
